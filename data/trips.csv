@@ -1,0 +1,4 @@
+trip_id,trip_name,start_date,end_date,primary_city,country,lat,lon,total_cost_usd,transport_mode,notes
+1,Taipei 2024,10/11/24,10/21/24,Taipei,Taiwan,25.033,121.5654,1182.56,Flight,First time in Taiwan
+,,,,,,,,,,
+,,,,,,,,,,
