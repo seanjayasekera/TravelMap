@@ -308,7 +308,7 @@ if {"trip_id", "cost_usd"}.issubset(meals.columns):
     fig_food = px.bar(
         df_food,
         x="trip_name", y="food_cost_usd",
-        labels({"trip_name": "Trip", "food_cost_usd": "USD"}),
+        labels={"trip_name": "Trip", "food_cost_usd": "USD"},
         color="food_cost_usd", color_continuous_scale="Viridis",
     )
     if show_labels:
