@@ -38,25 +38,14 @@ if missing:
 trips["days"] = (trips["end_date"] - trips["start_date"]).dt.days.clip(lower=1)
 trips["cost_per_day"] = (trips["total_cost_usd"] / trips["days"]).round(2)
 
-# ---- FOOD from meals.csv (always computed; safe against missing meals columns) ----
-if {"trip_id", "cost_usd"}.issubset(meals.columns):
-    food_by_trip = meals.groupby("trip_id", dropna=False)["cost_usd"].sum().rename("food_cost_usd")
-    trips = trips.merge(food_by_trip, how="left", left_on="trip_id", right_index=True)
-else:
-    trips["food_cost_usd"] = 0
-
-# Ensure numeric and non-negative on known spend columns that exist
-for col in ["total_cost_usd", "food_cost_usd"]:
+# ---- Ensure numeric and non-negative on known spend columns that exist ----
+for col in ["total_cost_usd", "transportation_cost_usd", "accommodation_cost_usd"]:
     if col in trips.columns:
         trips[col] = pd.to_numeric(trips[col], errors="coerce").fillna(0).clip(lower=0)
 
-# Transportation & Accommodation (optional columns)
-if "transportation_cost_usd" in trips.columns:
-    trips["transportation_cost_usd"] = pd.to_numeric(trips["transportation_cost_usd"], errors="coerce").fillna(0).clip(lower=0)
-if "accommodation_cost_usd" in trips.columns:
-    trips["accommodation_cost_usd"] = pd.to_numeric(trips["accommodation_cost_usd"], errors="coerce").fillna(0).clip(lower=0)
-
-# ---- Layout ----
+# ===========================
+#   LAYOUT: MAP + TOTAL SPEND
+# ===========================
 col1, col2 = st.columns([1.2, 1])
 
 with col1:
@@ -87,7 +76,7 @@ with col2:
         text_auto=True,
         labels={"trip_name": "Trip", "total_cost_usd": "USD"},
         color="total_cost_usd",
-        color_continuous_scale="Tealgrn",
+        color_continuous_scale="tealgrn",
     )
     fig_cost.update_traces(textfont_size=12, textposition="outside", cliponaxis=False)
     fig_cost.update_layout(height=450, xaxis_tickangle=-20, margin=dict(t=20), coloraxis_showscale=False)
@@ -95,15 +84,17 @@ with col2:
 
 st.divider()
 
-# 🏆 Cost per day leaderboard
-st.subheader("🏆 Cost per day leaderboard (lower is better)")
+# ===========================
+#   COST PER DAY LEADERBOARD
+# ===========================
+st.subheader("🏆 Cost per day leaderboard")
 cpd = trips.sort_values("cost_per_day", ascending=True).copy()
 fig_cpd = px.bar(
     cpd,
     x="cost_per_day", y="trip_name",
     orientation="h", text_auto=True,
     labels={"cost_per_day": "USD per day", "trip_name": "Trip"},
-    color="cost_per_day", color_continuous_scale="Blugrn",
+    color="cost_per_day", color_continuous_scale="blugrn",
 )
 fig_cpd.update_traces(textfont_size=12, textposition="outside", cliponaxis=False)
 fig_cpd.update_layout(height=520, margin=dict(t=20, r=20, l=10, b=20), coloraxis_showscale=False)
@@ -114,7 +105,11 @@ st.plotly_chart(fig_cpd, use_container_width=True)
 
 st.divider()
 
-# 🚗 Transportation spend per trip (separate chart)
+# ======================================
+#   TRANSPORT / FOOD / ACCOM SEPARATE BARS
+# ======================================
+
+# 🚗 Transportation spend per trip
 st.subheader("🚗 Transportation spend per trip")
 if "transportation_cost_usd" in trips.columns:
     fig_transport = px.bar(
@@ -123,7 +118,7 @@ if "transportation_cost_usd" in trips.columns:
         text_auto=True,
         labels={"trip_name": "Trip", "transportation_cost_usd": "USD"},
         color="transportation_cost_usd",
-        color_continuous_scale="Tealgrn",
+        color_continuous_scale="tealgrn",
     )
     fig_transport.update_traces(textfont_size=12, textposition="outside", cliponaxis=False)
     fig_transport.update_layout(height=420, xaxis_tickangle=-20, margin=dict(t=20), coloraxis_showscale=False)
@@ -131,21 +126,38 @@ if "transportation_cost_usd" in trips.columns:
 else:
     st.info("Add a 'transportation_cost_usd' column to trips.csv to see this chart.")
 
-# 🍜 Food spend per trip (computed from meals.csv)
+# 🍜 Food spend per trip (computed from meals.csv) — de-dupe safe and robust
 st.subheader("🍜 Food spend per trip")
-fig_food = px.bar(
-    trips.sort_values("start_date"),
-    x="trip_name", y="food_cost_usd",
-    text_auto=True,
-    labels={"trip_name": "Trip", "food_cost_usd": "USD"},
-    color="food_cost_usd",
-    color_continuous_scale="Viridis",
-)
-fig_food.update_traces(textfont_size=12, textposition="outside", cliponaxis=False)
-fig_food.update_layout(height=420, xaxis_tickangle=-20, margin=dict(t=20), coloraxis_showscale=False)
-st.plotly_chart(fig_food, use_container_width=True)
+if {"trip_id", "cost_usd"}.issubset(meals.columns):
+    meals = meals.copy()
+    meals["cost_usd"] = pd.to_numeric(meals["cost_usd"], errors="coerce").fillna(0)
+    meals["trip_id"] = pd.to_numeric(meals["trip_id"], errors="coerce").astype("Int64")
 
-# 🏨 Accommodation spend per trip (separate chart)
+    food_by_trip = meals.groupby("trip_id", dropna=False)["cost_usd"].sum().rename("food_cost_usd")
+
+    # Remove any existing food columns (_x/_y from reruns) then merge fresh
+    trips = trips.drop(columns=[c for c in trips.columns if c.startswith("food_cost_usd")], errors="ignore")
+    trips = trips.merge(food_by_trip, how="left", left_on="trip_id", right_index=True)
+    trips["food_cost_usd"] = pd.to_numeric(trips["food_cost_usd"], errors="coerce").fillna(0)
+
+    if trips["food_cost_usd"].sum() == 0 and len(meals) > 0:
+        st.info("No food costs matched your trips. Check that trip_id values in meals.csv match trips.csv.")
+    else:
+        fig_food = px.bar(
+            trips.sort_values("start_date"),
+            x="trip_name", y="food_cost_usd",
+            text_auto=True,
+            labels={"trip_name": "Trip", "food_cost_usd": "USD"},
+            color="food_cost_usd",
+            color_continuous_scale="viridis",
+        )
+        fig_food.update_traces(textfont_size=12, textposition="outside", cliponaxis=False)
+        fig_food.update_layout(height=420, xaxis_tickangle=-20, margin=dict(t=20), coloraxis_showscale=False)
+        st.plotly_chart(fig_food, use_container_width=True)
+else:
+    st.info("Your meals.csv needs columns named exactly: 'trip_id' and 'cost_usd' to compute food totals.")
+
+# 🏨 Accommodation spend per trip
 st.subheader("🏨 Accommodation spend per trip")
 if "accommodation_cost_usd" in trips.columns:
     fig_accom = px.bar(
@@ -154,7 +166,7 @@ if "accommodation_cost_usd" in trips.columns:
         text_auto=True,
         labels={"trip_name": "Trip", "accommodation_cost_usd": "USD"},
         color="accommodation_cost_usd",
-        color_continuous_scale="Purples",
+        color_continuous_scale="purples",
     )
     fig_accom.update_traces(textfont_size=12, textposition="outside", cliponaxis=False)
     fig_accom.update_layout(height=420, xaxis_tickangle=-20, margin=dict(t=20), coloraxis_showscale=False)
