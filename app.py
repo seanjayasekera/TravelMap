@@ -226,7 +226,7 @@ st.markdown("---")
 # ======================================
 #   ⭐ CUISINE RATINGS (RESTO SCORES)
 # ======================================
-st.subheader("⭐ Cuisine ratings (from meals.csv)")
+st.subheader("⭐ Cuisine ratings")
 if {"trip_id", "cuisine", "rating_1_5"}.issubset(meals.columns):
     # Filter meals to the *currently selected* trips
     meals_r = meals.copy()
