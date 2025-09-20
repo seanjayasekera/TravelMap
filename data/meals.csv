@@ -1,6 +1,7 @@
 meal_id,trip_id,date,city,country,venue,cuisine,rating_1_5,cost_usd,notes
-1,1,10/12/24,Taipei,Taiwan,_____,Noodles,4,,Taiwanese street noodles
-,,,,,,,,,
-,,,,,,,,,
-,,,,,,,,,
-,,,,,,,,,
+1,1,2022-05-11,Paris,France,Le Relais de l'Entrecôte,Steak,5,50,Amazing steak frites
+2,1,2022-05-13,Paris,France,Pierre Hermé,Dessert,4,30,Delicious macarons
+3,2,2023-03-16,Tokyo,Japan,Ichiran Ramen,Ramen,5,20,Best ramen ever
+4,2,2023-03-20,Tokyo,Japan,Sushi Dai,Sushi,5,60,Unforgettable sushi
+5,3,2024-09-02,New York,USA,Joe's Pizza,Pizza,4,25,Classic New York slice
+6,3,2024-09-03,New York,USA,Katz's Delicatessen,Deli,5,35,Famous pastrami sandwich
