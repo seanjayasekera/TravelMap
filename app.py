@@ -8,7 +8,7 @@ from pathlib import Path
 # =========================
 st.set_page_config(page_title="Travel Dashboard", page_icon="🌍", layout="wide")
 st.title("🌍 Travel Dashboard")
-st.caption("Trips, spend, cuisines — separate Transportation, Food, and Accommodation charts with filters, search, and PNG export")
+st.caption("Trips, spend, cuisines — separate Transportation, Food, and Accommodation charts with filters, search, ratings, and PNG export")
 
 # -------------------------
 #   HELPERS
@@ -37,7 +37,6 @@ def apply_common_layout(fig, height=420):
 def fig_png_bytes(fig, scale=2):
     """Return PNG bytes if kaleido is available; otherwise None."""
     try:
-        # plotly handles kaleido internally when available
         return fig.to_image(format="png", scale=scale)
     except Exception:
         return None
@@ -114,7 +113,7 @@ sort_by = st.sidebar.selectbox("Sort bars by", ["Start date", "Trip name", "Valu
 mask = trips["country"].isin(sel_countries) & trips["year"].isin(sel_years)
 t = trips.loc[mask].copy()
 
-# Apply search (case-insensitive, matches trip_name or primary_city or notes if present)
+# Apply search
 if search:
     s = search.strip().lower()
     cols = ["trip_name", "primary_city"] + (["notes"] if "notes" in t.columns else [])
@@ -225,6 +224,50 @@ add_download(fig_cpd, "cost_per_day.png", key="dl_cpd")
 st.markdown("---")
 
 # ======================================
+#   ⭐ CUISINE RATINGS (RESTO SCORES)
+# ======================================
+st.subheader("⭐ Cuisine ratings (from meals.csv)")
+if {"trip_id", "cuisine", "rating_1_5"}.issubset(meals.columns):
+    # Filter meals to the *currently selected* trips
+    meals_r = meals.copy()
+    meals_r["rating_1_5"] = pd.to_numeric(meals_r["rating_1_5"], errors="coerce")
+    meals_r = meals_r[meals_r["trip_id"].isin(t["trip_id"])]
+
+    if meals_r.empty:
+        st.info("No meals match the current filters. Add meals or widen your filters.")
+    else:
+        top_cuisines = (
+            meals_r.dropna(subset=["cuisine", "rating_1_5"])
+                   .groupby("cuisine", as_index=False)
+                   .agg(avg_rating=("rating_1_5", "mean"), count=("rating_1_5", "size"))
+                   .sort_values(["avg_rating","count"], ascending=[False, False])
+        )
+        c1, c2 = st.columns([1,1])
+        with c1:
+            st.dataframe(top_cuisines, use_container_width=True)
+        with c2:
+            fig_cuisine = px.bar(
+                top_cuisines,
+                x="cuisine", y="avg_rating",
+                hover_data=["count"],
+                labels={"avg_rating":"Avg Rating"},
+                color="avg_rating",
+                color_continuous_scale="Viridis",
+                range_y=[0,5],
+            )
+            if show_labels:
+                fig_cuisine.update_traces(text=top_cuisines["avg_rating"].map(lambda v: f"{v:.2f}"),
+                                          textposition="outside", cliponaxis=False)
+            fig_cuisine.update_layout(xaxis_tickangle=-30)
+            apply_common_layout(fig_cuisine)
+            st.plotly_chart(fig_cuisine, use_container_width=True)
+            add_download(fig_cuisine, "cuisine_ratings.png", key="dl_cuisine")
+else:
+    st.info("Your meals.csv needs columns: 'trip_id', 'cuisine', and 'rating_1_5' for cuisine ratings.")
+
+st.markdown("---")
+
+# ======================================
 #   TRANSPORT / FOOD / ACCOM SEPARATE BARS
 # ======================================
 
@@ -251,7 +294,6 @@ else:
 
 # 🍜 Food (computed)
 st.subheader("🍜 Food spend per trip")
-# Recompute food for filtered trips only to keep labels aligned
 if {"trip_id", "cost_usd"}.issubset(meals.columns):
     meals_f = meals.copy()
     meals_f["cost_usd"] = pd.to_numeric(meals_f["cost_usd"], errors="coerce").fillna(0)
@@ -266,7 +308,7 @@ if {"trip_id", "cost_usd"}.issubset(meals.columns):
     fig_food = px.bar(
         df_food,
         x="trip_name", y="food_cost_usd",
-        labels={"trip_name": "Trip", "food_cost_usd": "USD"},
+        labels({"trip_name": "Trip", "food_cost_usd": "USD"}),
         color="food_cost_usd", color_continuous_scale="Viridis",
     )
     if show_labels:
