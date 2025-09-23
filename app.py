@@ -8,7 +8,7 @@ from pathlib import Path
 # =========================
 st.set_page_config(page_title="Travel Dashboard", page_icon="🌍", layout="wide")
 st.title("🌍 Travel Dashboard")
-st.caption("Trips, spend, cuisines — separate Transportation, Food, and Accommodation charts with filters, search, ratings, and PNG export")
+st.caption("Trips, spend, cuisines — separate Transportation, Food, and Accommodation charts with filters, search, ratings (/10), and PNG export")
 
 # -------------------------
 #   HELPERS
@@ -224,22 +224,22 @@ add_download(fig_cpd, "cost_per_day.png", key="dl_cpd")
 st.markdown("---")
 
 # ======================================
-#   ⭐ CUISINE RATINGS (RESTO SCORES)
+#   ⭐ CUISINE RATINGS (OUT OF 10)
 # ======================================
-st.subheader("⭐ Cuisine ratings")
-if {"trip_id", "cuisine", "rating_1_5"}.issubset(meals.columns):
+st.subheader("⭐ Cuisine ratings (/10) from meals.csv")
+if {"trip_id", "cuisine", "rating_1_10"}.issubset(meals.columns):
     # Filter meals to the *currently selected* trips
     meals_r = meals.copy()
-    meals_r["rating_1_5"] = pd.to_numeric(meals_r["rating_1_5"], errors="coerce")
+    meals_r["rating_1_10"] = pd.to_numeric(meals_r["rating_1_10"], errors="coerce")
     meals_r = meals_r[meals_r["trip_id"].isin(t["trip_id"])]
 
     if meals_r.empty:
         st.info("No meals match the current filters. Add meals or widen your filters.")
     else:
         top_cuisines = (
-            meals_r.dropna(subset=["cuisine", "rating_1_5"])
+            meals_r.dropna(subset=["cuisine", "rating_1_10"])
                    .groupby("cuisine", as_index=False)
-                   .agg(avg_rating=("rating_1_5", "mean"), count=("rating_1_5", "size"))
+                   .agg(avg_rating=("rating_1_10", "mean"), count=("rating_1_10", "size"))
                    .sort_values(["avg_rating","count"], ascending=[False, False])
         )
         c1, c2 = st.columns([1,1])
@@ -250,20 +250,20 @@ if {"trip_id", "cuisine", "rating_1_5"}.issubset(meals.columns):
                 top_cuisines,
                 x="cuisine", y="avg_rating",
                 hover_data=["count"],
-                labels={"avg_rating":"Avg Rating"},
+                labels={"avg_rating":"Avg Rating (/10)"},
                 color="avg_rating",
                 color_continuous_scale="Viridis",
-                range_y=[0,5],
+                range_y=[0,10],
             )
             if show_labels:
-                fig_cuisine.update_traces(text=top_cuisines["avg_rating"].map(lambda v: f"{v:.2f}"),
+                fig_cuisine.update_traces(text=top_cuisines["avg_rating"].map(lambda v: f"{v:.1f}"),
                                           textposition="outside", cliponaxis=False)
             fig_cuisine.update_layout(xaxis_tickangle=-30)
             apply_common_layout(fig_cuisine)
             st.plotly_chart(fig_cuisine, use_container_width=True)
             add_download(fig_cuisine, "cuisine_ratings.png", key="dl_cuisine")
 else:
-    st.info("Your meals.csv needs columns: 'trip_id', 'cuisine', and 'rating_1_5' for cuisine ratings.")
+    st.info("Your meals.csv needs columns: 'trip_id', 'cuisine', and 'rating_1_10' for cuisine ratings.")
 
 st.markdown("---")
 
