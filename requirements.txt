@@ -1,4 +1,4 @@
 streamlit>=1.36
 pandas>=2.0
 plotly>=5.18
-kaleido>=0.2.1
+kaleido==0.2.1
