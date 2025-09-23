@@ -8,7 +8,7 @@ from pathlib import Path
 # =========================
 st.set_page_config(page_title="Travel Dashboard", page_icon="🌍", layout="wide")
 st.title("🌍 Travel Dashboard")
-st.caption("Trips, spend, cuisines — separate Transportation, Food, and Accommodation charts with filters, search, ratings (/10), and PNG export")
+st.caption("Trips, spend, cuisines — separate Transportation, Food, and Accommodation charts with filters, search, ratings, and PNG export")
 
 # -------------------------
 #   HELPERS
@@ -224,33 +224,41 @@ add_download(fig_cpd, "cost_per_day.png", key="dl_cpd")
 st.markdown("---")
 
 # ======================================
-#   ⭐ CUISINE RATINGS (OUT OF 10)
+#   🍴 FOOD RATINGS
 # ======================================
-st.subheader("⭐ Cuisine ratings (/10) from meals.csv")
+st.subheader("🍴 Food Ratings")
 if {"trip_id", "cuisine", "rating_1_10"}.issubset(meals.columns):
     # Filter meals to the *currently selected* trips
     meals_r = meals.copy()
     meals_r["rating_1_10"] = pd.to_numeric(meals_r["rating_1_10"], errors="coerce")
+    # Keep only meals that belong to the filtered trips
     meals_r = meals_r[meals_r["trip_id"].isin(t["trip_id"])]
 
     if meals_r.empty:
         st.info("No meals match the current filters. Add meals or widen your filters.")
     else:
+        # ---- Left: table ordered by ID (meal_id if present, else trip_id) ----
+        display_cols = [c for c in ["meal_id","trip_id","date","cuisine","restaurant","rating_1_10","cost_usd"] if c in meals_r.columns]
+        sort_col = "meal_id" if "meal_id" in meals_r.columns else "trip_id"
+        table_df = meals_r[display_cols].sort_values(sort_col, ascending=True).reset_index(drop=True)
+
+        # ---- Right: bar chart of average rating by cuisine ----
         top_cuisines = (
             meals_r.dropna(subset=["cuisine", "rating_1_10"])
                    .groupby("cuisine", as_index=False)
                    .agg(avg_rating=("rating_1_10", "mean"), count=("rating_1_10", "size"))
                    .sort_values(["avg_rating","count"], ascending=[False, False])
         )
+
         c1, c2 = st.columns([1,1])
         with c1:
-            st.dataframe(top_cuisines, use_container_width=True)
+            st.dataframe(table_df, use_container_width=True)
         with c2:
             fig_cuisine = px.bar(
                 top_cuisines,
                 x="cuisine", y="avg_rating",
                 hover_data=["count"],
-                labels={"avg_rating":"Avg Rating (/10)"},
+                labels={"avg_rating":"Avg Rating"},
                 color="avg_rating",
                 color_continuous_scale="Viridis",
                 range_y=[0,10],
@@ -261,9 +269,9 @@ if {"trip_id", "cuisine", "rating_1_10"}.issubset(meals.columns):
             fig_cuisine.update_layout(xaxis_tickangle=-30)
             apply_common_layout(fig_cuisine)
             st.plotly_chart(fig_cuisine, use_container_width=True)
-            add_download(fig_cuisine, "cuisine_ratings.png", key="dl_cuisine")
+            add_download(fig_cuisine, "food_ratings_cuisines.png", key="dl_cuisine")
 else:
-    st.info("Your meals.csv needs columns: 'trip_id', 'cuisine', and 'rating_1_10' for cuisine ratings.")
+    st.info("Your meals.csv needs columns: 'trip_id', 'cuisine', and 'rating_1_10' for food ratings.")
 
 st.markdown("---")
 
@@ -292,7 +300,7 @@ if "transportation_cost_usd" in t.columns:
 else:
     st.info("Add a 'transportation_cost_usd' column to trips.csv to see this chart.")
 
-# 🍜 Food (computed)
+# 🍜 Food (computed costs)
 st.subheader("🍜 Food spend per trip")
 if {"trip_id", "cost_usd"}.issubset(meals.columns):
     meals_f = meals.copy()
@@ -318,7 +326,7 @@ if {"trip_id", "cost_usd"}.issubset(meals.columns):
     fig_food.update_layout(xaxis_tickangle=-20)
     apply_common_layout(fig_food)
     st.plotly_chart(fig_food, use_container_width=True)
-    add_download(fig_food, "food.png", key="dl_food")
+    add_download(fig_food, "food_spend.png", key="dl_food")
 else:
     st.info("Your meals.csv needs 'trip_id' and 'cost_usd' to compute food totals.")
 
