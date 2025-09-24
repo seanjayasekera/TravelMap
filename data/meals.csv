@@ -1,7 +1,7 @@
-meal_id,trip_id,cuisine,restaurant,cost_usd,rating_1_10,date
-1,101,French,Bistro Paris,50,9,2023-06-10
-2,101,Italian,Trattoria Roma,40,8,2023-06-11
-3,102,Japanese,Sushi Tokyo,60,10,2023-07-05
-4,102,Chinese,Beijing House,35,7,2023-07-06
-5,103,American,NYC Diner,25,6,2023-08-15
-6,103,Mexican,Cantina,30,8,2023-08-16
+meal_id,trip_id,cuisine,restaurant,dish_name,cost_usd,rating_1_10,date
+1,101,French,Le Meurice,Duck Confit,50,9,2023-06-11
+2,101,French,Cafe de Flore,Croissant,10,8,2023-06-12
+3,102,Japanese,Sushi Tokyo,Sushi Set,60,10,2023-07-05
+4,102,Japanese,Ichiran Ramen,Ramen,15,9,2023-07-08
+5,103,American,Katz's Deli,Pastrami Sandwich,25,7,2023-08-16
+6,103,Italian,Lupa Osteria,Pasta Carbonara,30,8,2023-08-17
