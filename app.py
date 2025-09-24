@@ -9,7 +9,7 @@ from pathlib import Path
 # =========================
 st.set_page_config(page_title="Travel Dashboard", page_icon="🌍", layout="wide")
 st.title("🌍 Travel Dashboard")
-st.caption("Add trips and meals directly in the app • Explore maps & costs • Share your dashboard")
+st.caption("Add trips & meals in-app • Auto-fill map coordinates from City + Country • Explore maps & costs")
 
 # -------------------------
 #   KALEIDO DETECTION & CONFIG
@@ -20,10 +20,32 @@ try:
 except Exception:
     KALEIDO_OK = False
 
-PLOTLY_CONFIG = {
-    "displaylogo": False,
-    "modeBarButtonsToAdd": ["toImage"] if not KALEIDO_OK else [],
-}
+PLOTLY_CONFIG = {"displaylogo": False, "modeBarButtonsToAdd": ["toImage"] if not KALEIDO_OK else []}
+
+# -------------------------
+#   OPTIONAL GEOCODER (geopy)
+# -------------------------
+try:
+    from geopy.geocoders import Nominatim
+    from geopy.extra.rate_limiter import RateLimiter
+    GEOCODER_OK = True
+except Exception:
+    GEOCODER_OK = False
+
+@st.cache_data(show_spinner=False)
+def geocode_city_country(city: str, country: str):
+    """Return (lat, lon) or None using OpenStreetMap Nominatim; polite rate limits."""
+    if not GEOCODER_OK or not city or not country:
+        return None
+    try:
+        geolocator = Nominatim(user_agent="travel_dashboard_sean", timeout=6)
+        geocode = RateLimiter(geolocator.geocode, min_delay_seconds=1)  # be nice to OSM
+        loc = geocode(f"{city}, {country}")
+        if loc:
+            return float(loc.latitude), float(loc.longitude)
+    except Exception:
+        pass
+    return None
 
 # -------------------------
 #   HELPERS
@@ -58,7 +80,6 @@ def empty_meals_df() -> pd.DataFrame:
     })
 
 def read_uploaded_or_empty(uploaded, parse_dates=None, empty_factory=None):
-    """Return uploaded CSV if provided; otherwise return empty schema."""
     if uploaded is not None:
         return pd.read_csv(uploaded, parse_dates=parse_dates)
     return empty_factory() if empty_factory else pd.DataFrame()
@@ -70,12 +91,7 @@ def year_series(dts):
         return pd.to_datetime(dts, errors="coerce").dt.year
 
 def apply_common_layout(fig, height=420):
-    fig.update_layout(
-        template="simple_white",
-        height=height,
-        margin=dict(t=30, r=10, l=10, b=10),
-        coloraxis_showscale=False,
-    )
+    fig.update_layout(template="simple_white", height=height, margin=dict(t=30, r=10, l=10, b=10), coloraxis_showscale=False)
     return fig
 
 def fig_png_bytes(fig, scale=2):
@@ -107,7 +123,6 @@ st.sidebar.header("Upload your CSVs (optional)")
 up_trips = st.sidebar.file_uploader("trips.csv", type=["csv"])
 up_meals = st.sidebar.file_uploader("meals.csv", type=["csv"])
 
-# Start empty unless uploads provided
 trips_loaded = read_uploaded_or_empty(up_trips, parse_dates=["start_date", "end_date"], empty_factory=empty_trips_df)
 meals_loaded = read_uploaded_or_empty(up_meals, parse_dates=["date"], empty_factory=empty_meals_df)
 
@@ -121,7 +136,7 @@ trips = st.session_state.trips_df
 meals = st.session_state.meals_df
 
 # -------------------------
-#   LIGHTWEIGHT SIDEBAR DIAGNOSTICS
+#   LIGHT SIDEBAR DIAGNOSTICS
 # -------------------------
 with st.sidebar.expander("Data check", expanded=False):
     st.write("**meals.csv columns:**")
@@ -129,11 +144,7 @@ with st.sidebar.expander("Data check", expanded=False):
     st.write("Rows:", len(meals))
     st.write("Contains `dish_name`? →", "✅ yes" if "dish_name" in meals.columns else "❌ no")
     st.write("Contains `rating_1_10`? →", "✅ yes" if "rating_1_10" in meals.columns else "❌ no")
-    if len(meals):
-        prev = meals.head(5).copy()
-        for c in prev.columns:
-            prev[c] = prev[c].astype(str)
-        st.table(prev)
+    st.write("Geocoder:", "✅ enabled" if GEOCODER_OK else "⚠️ install `geopy` to enable auto-fill")
 
 # -------------------------
 #   BASIC SCHEMA (ensure required cols exist even if empty)
@@ -144,7 +155,6 @@ required_trip_cols = {
 }
 missing = required_trip_cols - set(trips.columns)
 if missing:
-    # Add missing required columns with proper dtypes
     templ = empty_trips_df()
     for col in missing:
         trips[col] = templ[col]
@@ -154,12 +164,10 @@ if missing:
 # -------------------------
 #   DERIVED COLUMNS (safe on empty)
 # -------------------------
-# Coerce numeric
 for col in ["lat", "lon", "total_cost_usd", "transportation_cost_usd", "accommodation_cost_usd"]:
     if col in trips.columns:
         trips[col] = pd.to_numeric(trips[col], errors="coerce")
 
-# Dates / derived
 trips["start_date"] = pd.to_datetime(trips["start_date"], errors="coerce")
 trips["end_date"] = pd.to_datetime(trips["end_date"], errors="coerce")
 if len(trips):
@@ -172,7 +180,7 @@ trips["cost_per_day"] = (
     trips["days"].replace({0: 1})
 ).round(2)
 
-# Compute food per trip from meals (safe on empty)
+# Compute food per trip from meals
 if {"trip_id", "cost_usd"}.issubset(meals.columns) and len(meals):
     meals = meals.copy()
     meals["cost_usd"] = pd.to_numeric(meals["cost_usd"], errors="coerce").fillna(0)
@@ -187,12 +195,12 @@ else:
 trips["food_cost_usd"] = pd.to_numeric(trips["food_cost_usd"], errors="coerce").fillna(0).clip(lower=0)
 trips["year"] = year_series(pd.to_datetime(trips["start_date"], errors="coerce"))
 
-# Write back after derivations
+# Write back (post-derivations)
 st.session_state.trips_df = trips
 st.session_state.meals_df = meals
 
 # -------------------------
-#   ➕ ADD / MANAGE DATA (no CSVs needed)
+#   ➕ ADD / MANAGE DATA
 # -------------------------
 st.markdown("## ➕ Add / Manage Data")
 tab_add_trip, tab_add_meal, tab_edit = st.tabs(["Add Trip", "Add Meal", "Edit Tables"])
@@ -210,17 +218,45 @@ with tab_add_trip:
             transportation_cost_usd = st.number_input("Transportation cost (USD)", min_value=0.0, step=5.0, value=0.0)
         with colB:
             end_date = st.date_input("End date *")
-            lat = st.number_input("Latitude *", min_value=-90.0, max_value=90.0, step=0.0001, format="%.6f")
-            lon = st.number_input("Longitude *", min_value=-180.0, max_value=180.0, step=0.0001, format="%.6f")
+            # Lat/Lon optional — auto-fill available
+            lat_str = st.text_input("Latitude (optional) — auto-filled from city", placeholder="")
+            lon_str = st.text_input("Longitude (optional) — auto-filled from city", placeholder="")
             accommodation_cost_usd = st.number_input("Accommodation cost (USD)", min_value=0.0, step=5.0, value=0.0)
             notes = st.text_input("Notes (optional)", placeholder="Cherry blossom season!")
+        auto_coords = st.checkbox("Auto-fill coordinates from city & country", value=True)
         submitted = st.form_submit_button("Add trip")
+
     if submitted:
         if not trip_name or not primary_city or not country or start_date is None or end_date is None:
             st.error("Please fill all required fields (marked with *).")
         elif pd.to_datetime(end_date) < pd.to_datetime(start_date):
             st.error("End date cannot be before start date.")
         else:
+            # Parse manual lat/lon if provided
+            lat_val = None
+            lon_val = None
+            if lat_str.strip():
+                try: lat_val = float(lat_str)
+                except Exception: st.warning("Latitude couldn’t be parsed; will attempt auto-fill.")
+            if lon_str.strip():
+                try: lon_val = float(lon_str)
+                except Exception: st.warning("Longitude couldn’t be parsed; will attempt auto-fill.")
+
+            # Auto-fill if requested and missing
+            if (lat_val is None or lon_val is None) and auto_coords:
+                coords = geocode_city_country(primary_city, country)
+                if coords:
+                    lat_val, lon_val = coords
+                else:
+                    if GEOCODER_OK:
+                        st.warning("Couldn’t auto-find coordinates for that city/country. You can enter them manually.")
+                    else:
+                        st.info("To enable auto-fill, add `geopy>=2.4` to requirements.txt.")
+
+            # Final fallback (never leave NaN)
+            if lat_val is None: lat_val = 0.0
+            if lon_val is None: lon_val = 0.0
+
             trips = st.session_state.trips_df
             new_id = next_int(trips["trip_id"]) if "trip_id" in trips.columns else 1
             new_row = {
@@ -230,15 +266,19 @@ with tab_add_trip:
                 "end_date": pd.to_datetime(end_date),
                 "primary_city": primary_city,
                 "country": country,
-                "lat": float(lat),
-                "lon": float(lon),
+                "lat": float(lat_val),
+                "lon": float(lon_val),
                 "total_cost_usd": float(total_cost_usd),
                 "transportation_cost_usd": float(transportation_cost_usd),
                 "accommodation_cost_usd": float(accommodation_cost_usd),
                 "notes": notes,
             }
             st.session_state.trips_df = pd.concat([trips, pd.DataFrame([new_row])], ignore_index=True)
-            st.success(f"Trip “{trip_name}” added!")
+
+            msg = f"Trip “{trip_name}” added!"
+            if auto_coords and (not lat_str.strip() or not lon_str.strip()) and (lat_val or lon_val):
+                msg += f"  (Auto-filled coords: {lat_val:.4f}, {lon_val:.4f})"
+            st.success(msg)
 
 with tab_add_meal:
     st.write("Add a meal for one of the trips in view.")
@@ -297,6 +337,19 @@ with tab_edit:
         st.session_state.trips_df = st.data_editor(
             st.session_state.trips_df, use_container_width=True, num_rows="dynamic", key="edit_trips"
         )
+        if GEOCODER_OK and st.button("Auto-fill missing coordinates for existing trips"):
+            df = st.session_state.trips_df.copy()
+            miss = df["lat"].isna() | df["lon"].isna()
+            filled = 0
+            for idx, row in df.loc[miss].iterrows():
+                city = str(row.get("primary_city") or "").strip()
+                country = str(row.get("country") or "").strip()
+                coords = geocode_city_country(city, country)
+                if coords:
+                    df.at[idx, "lat"], df.at[idx, "lon"] = coords
+                    filled += 1
+            st.session_state.trips_df = df
+            st.success(f"Filled {filled} trip(s) with coordinates.")
         st.download_button(
             "⬇️ Download updated trips.csv",
             data=to_csv_download_bytes(st.session_state.trips_df),
@@ -322,7 +375,7 @@ with tab_edit:
             key="dl_meals_csv",
         )
 
-# Refresh working copies after edits/additions
+# Refresh working copies
 trips = st.session_state.trips_df.copy()
 meals = st.session_state.meals_df.copy()
 
@@ -356,7 +409,6 @@ st.markdown("---")
 st.sidebar.header("Filters")
 countries = sorted(trips["country"].dropna().unique().tolist())
 years = sorted(trips["year"].dropna().unique().tolist())
-
 sel_countries = st.sidebar.multiselect("Country", countries, default=countries)
 sel_years = st.sidebar.multiselect("Year", years, default=years)
 search = st.sidebar.text_input("Search trips/cities", placeholder="e.g., Tokyo")
@@ -409,7 +461,12 @@ with col1:
 with col2:
     st.subheader("💵 Total spend per trip")
     if len(t):
-        df_total = t.sort_values("start_date") if sort_by == "Start date" else t.sort_values("trip_name") if sort_by == "Trip name" else t.sort_values("total_cost_usd", ascending=False)
+        if sort_by == "Start date":
+            df_total = t.sort_values("start_date")
+        elif sort_by == "Trip name":
+            df_total = t.sort_values("trip_name")
+        else:
+            df_total = t.sort_values("total_cost_usd", ascending=False)
         fig_cost = px.bar(
             df_total, x="trip_name", y="total_cost_usd",
             labels={"trip_name": "Trip", "total_cost_usd": "USD"},
@@ -458,17 +515,10 @@ st.subheader("🍴 Food Ratings")
 if {"trip_id","cuisine","rating_1_10"}.issubset(meals.columns) and len(meals) and len(t):
     meals_r = meals.copy()
     meals_r["rating_1_10"] = pd.to_numeric(meals_r["rating_1_10"], errors="coerce")
-
     if "date" in meals_r.columns:
         meals_r["date_str"] = pd.to_datetime(meals_r["date"], errors="coerce").dt.strftime("%Y-%m-%d")
-
     meals_r = meals_r[meals_r["trip_id"].isin(t["trip_id"])]
-
-    meals_r = meals_r.merge(
-        t[["trip_id", "trip_name"]],
-        how="left",
-        on="trip_id"
-    )
+    meals_r = meals_r.merge(t[["trip_id", "trip_name"]], how="left", on="trip_id")
 
     if meals_r.empty:
         st.info("No meals match the current filters.")
@@ -574,4 +624,4 @@ if "accommodation_cost_usd" in t.columns and len(t) and t["accommodation_cost_us
 else:
     st.info("Add trips with accommodation costs to see this chart.")
 
-st.caption("To persist new entries for everyone, download the updated CSVs above and commit them to your repo. We can also wire a real backend (Google Sheets / Supabase) later for automatic saving.")
+st.caption("To persist new entries for everyone, download the updated CSVs above and commit them to your repo. Auto-saving to Google Sheets/Supabase is easy to add later.")
