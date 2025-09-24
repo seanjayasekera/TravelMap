@@ -78,6 +78,19 @@ up_meals = st.sidebar.file_uploader("meals.csv", type=["csv"])
 trips = read_csv_with_fallback(up_trips, data_dir / "trips.csv", parse_dates=["start_date", "end_date"])
 meals = read_csv_with_fallback(up_meals, data_dir / "meals.csv", parse_dates=["date"])
 
+# -------------------------
+#   QUICK DIAGNOSTICS (so you can confirm columns on the cloud)
+# -------------------------
+with st.sidebar.expander("Data check", expanded=False):
+    st.write("**meals.csv columns:**", list(meals.columns))
+    st.write("Contains `dish_name`? →", "✅ yes" if "dish_name" in meals.columns else "❌ no")
+    st.write("Contains `rating_1_10`? →", "✅ yes" if "rating_1_10" in meals.columns else "❌ no")
+    st.caption("Preview of the first few meals rows:")
+    try:
+        st.dataframe(meals.head(), use_container_width=True)
+    except Exception as e:
+        st.write("Couldn't display preview:", e)
+
 # Basic schema
 required_trip_cols = {
     "trip_id","trip_name","start_date","end_date",
@@ -127,7 +140,7 @@ search = st.sidebar.text_input("Search trips/cities", placeholder="e.g., Tokyo, 
 show_labels = st.sidebar.checkbox("Show values on bars", value=True)
 sort_by = st.sidebar.selectbox("Sort bars by", ["Start date", "Trip name", "Value"], index=0)
 
-# Small diagnostics so you know what's happening on the cloud
+# Small system status
 with st.sidebar.expander("System status", expanded=False):
     st.write("Kaleido:", "✅ found" if KALEIDO_OK else "❌ missing")
     st.caption("If missing, use the chart toolbar’s camera icon to download PNGs. "
