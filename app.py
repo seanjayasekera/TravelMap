@@ -208,32 +208,26 @@ tab_add_trip, tab_add_meal, tab_edit = st.tabs(["Add Trip", "Add Meal", "Edit Ta
 with tab_add_trip:
     st.write("Add a new trip. Fields with * are required.")
     with st.form("form_add_trip", clear_on_submit=True):
-        # Row 1: basic info (left) + notes (right)
+        # Row 1: basic info
         c1, c2 = st.columns(2)
         with c1:
             trip_name = st.text_input("Trip name *", placeholder="Tokyo Spring Break")
             primary_city = st.text_input("Primary city *", placeholder="Tokyo")
             country = st.text_input("Country *", placeholder="Japan")
         with c2:
-            notes = st.text_input("Notes (optional)", placeholder="Cherry blossom season!")
+            total_cost_usd = st.number_input("Total cost (USD) *", min_value=0.0, step=10.0)
+            transportation_cost_usd = st.number_input("Transportation cost (USD)", min_value=0.0, step=5.0, value=0.0)
+            accommodation_cost_usd = st.number_input("Accommodation cost (USD)", min_value=0.0, step=5.0, value=0.0)
 
-        # Row 2: dates side-by-side
+        # Row 2: dates side-by-side (requested change)
         d1, d2 = st.columns(2)
         with d1:
             start_date = st.date_input("Start date *")
         with d2:
             end_date = st.date_input("End date *")
 
-        # Row 3: costs grouped in one row
-        cost1, cost2, cost3 = st.columns(3)
-        with cost1:
-            total_cost_usd = st.number_input("Total (USD) *", min_value=0.0, step=10.0)
-        with cost2:
-            transportation_cost_usd = st.number_input("Transport (USD)", min_value=0.0, step=5.0, value=0.0)
-        with cost3:
-            accommodation_cost_usd = st.number_input("Accommodation (USD)", min_value=0.0, step=5.0, value=0.0)
-
-        # Auto coords toggle
+        # Notes + auto-fill toggle
+        notes = st.text_input("Notes (optional)", placeholder="Cherry blossom season!")
         auto_coords = st.checkbox("Auto-fill coordinates from city & country", value=True)
 
         submitted = st.form_submit_button("Add trip")
