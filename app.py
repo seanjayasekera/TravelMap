@@ -3,7 +3,6 @@ import pandas as pd
 import plotly.express as px
 from io import StringIO
 from pathlib import Path
-import numpy as np
 
 # =========================
 #   PAGE / THEME SETTINGS
@@ -29,11 +28,40 @@ PLOTLY_CONFIG = {
 # -------------------------
 #   HELPERS
 # -------------------------
-def read_csv_with_fallback(uploaded, default_path, **read_kwargs):
+def empty_trips_df() -> pd.DataFrame:
+    return pd.DataFrame({
+        "trip_id": pd.Series(dtype="Int64"),
+        "trip_name": pd.Series(dtype="string"),
+        "start_date": pd.Series(dtype="datetime64[ns]"),
+        "end_date": pd.Series(dtype="datetime64[ns]"),
+        "primary_city": pd.Series(dtype="string"),
+        "country": pd.Series(dtype="string"),
+        "lat": pd.Series(dtype="float"),
+        "lon": pd.Series(dtype="float"),
+        "total_cost_usd": pd.Series(dtype="float"),
+        "transportation_cost_usd": pd.Series(dtype="float"),
+        "accommodation_cost_usd": pd.Series(dtype="float"),
+        "notes": pd.Series(dtype="string"),
+    })
+
+def empty_meals_df() -> pd.DataFrame:
+    return pd.DataFrame({
+        "meal_id": pd.Series(dtype="Int64"),
+        "trip_id": pd.Series(dtype="Int64"),
+        "date": pd.Series(dtype="datetime64[ns]"),
+        "cuisine": pd.Series(dtype="string"),
+        "restaurant": pd.Series(dtype="string"),
+        "dish_name": pd.Series(dtype="string"),
+        "rating_1_10": pd.Series(dtype="Int64"),
+        "cost_usd": pd.Series(dtype="float"),
+        "notes": pd.Series(dtype="string"),
+    })
+
+def read_uploaded_or_empty(uploaded, parse_dates=None, empty_factory=None):
+    """Return uploaded CSV if provided; otherwise return empty schema."""
     if uploaded is not None:
-        return pd.read_csv(uploaded, **read_kwargs)
-    else:
-        return pd.read_csv(default_path, **read_kwargs)
+        return pd.read_csv(uploaded, parse_dates=parse_dates)
+    return empty_factory() if empty_factory else pd.DataFrame()
 
 def year_series(dts):
     try:
@@ -69,27 +97,25 @@ def to_csv_download_bytes(df: pd.DataFrame) -> bytes:
     return buf.getvalue().encode("utf-8")
 
 def next_int(series):
-    """Return next positive integer not in series; handles empty/NaN."""
     s = pd.to_numeric(series, errors="coerce").dropna().astype(int)
     return (s.max() + 1) if len(s) else 1
 
 # -------------------------
-#   LOAD DATA
+#   LOAD DATA (EMPTY BY DEFAULT)
 # -------------------------
-data_dir = Path(__file__).parent / "data"
-
-st.sidebar.header("Upload your CSVs (optional for you)")
+st.sidebar.header("Upload your CSVs (optional)")
 up_trips = st.sidebar.file_uploader("trips.csv", type=["csv"])
 up_meals = st.sidebar.file_uploader("meals.csv", type=["csv"])
 
-trips = read_csv_with_fallback(up_trips, data_dir / "trips.csv", parse_dates=["start_date", "end_date"])
-meals = read_csv_with_fallback(up_meals, data_dir / "meals.csv", parse_dates=["date"])
+# Start empty unless uploads provided
+trips_loaded = read_uploaded_or_empty(up_trips, parse_dates=["start_date", "end_date"], empty_factory=empty_trips_df)
+meals_loaded = read_uploaded_or_empty(up_meals, parse_dates=["date"], empty_factory=empty_meals_df)
 
-# Initialize session state copies (authoritative for this session)
+# Initialize session-state authoritative copies
 if "trips_df" not in st.session_state:
-    st.session_state.trips_df = trips.copy()
+    st.session_state.trips_df = trips_loaded.copy()
 if "meals_df" not in st.session_state:
-    st.session_state.meals_df = meals.copy()
+    st.session_state.meals_df = meals_loaded.copy()
 
 trips = st.session_state.trips_df
 meals = st.session_state.meals_df
@@ -100,11 +126,17 @@ meals = st.session_state.meals_df
 with st.sidebar.expander("Data check", expanded=False):
     st.write("**meals.csv columns:**")
     st.code(", ".join(map(str, meals.columns)))
+    st.write("Rows:", len(meals))
     st.write("Contains `dish_name`? →", "✅ yes" if "dish_name" in meals.columns else "❌ no")
     st.write("Contains `rating_1_10`? →", "✅ yes" if "rating_1_10" in meals.columns else "❌ no")
+    if len(meals):
+        prev = meals.head(5).copy()
+        for c in prev.columns:
+            prev[c] = prev[c].astype(str)
+        st.table(prev)
 
 # -------------------------
-#   BASIC SCHEMA CHECKS
+#   BASIC SCHEMA (ensure required cols exist even if empty)
 # -------------------------
 required_trip_cols = {
     "trip_id","trip_name","start_date","end_date",
@@ -112,22 +144,36 @@ required_trip_cols = {
 }
 missing = required_trip_cols - set(trips.columns)
 if missing:
-    st.error(f"Missing columns in trips.csv: {missing}")
-    st.stop()
+    # Add missing required columns with proper dtypes
+    templ = empty_trips_df()
+    for col in missing:
+        trips[col] = templ[col]
+    st.session_state.trips_df = trips
+    trips = st.session_state.trips_df
 
 # -------------------------
-#   DERIVED COLUMNS
+#   DERIVED COLUMNS (safe on empty)
 # -------------------------
-# Coerce numeric columns safely
+# Coerce numeric
 for col in ["lat", "lon", "total_cost_usd", "transportation_cost_usd", "accommodation_cost_usd"]:
     if col in trips.columns:
         trips[col] = pd.to_numeric(trips[col], errors="coerce")
 
-trips["days"] = (pd.to_datetime(trips["end_date"], errors="coerce") - pd.to_datetime(trips["start_date"], errors="coerce")).dt.days.clip(lower=1)
-trips["cost_per_day"] = (pd.to_numeric(trips["total_cost_usd"], errors="coerce").fillna(0) / trips["days"]).round(2)
+# Dates / derived
+trips["start_date"] = pd.to_datetime(trips["start_date"], errors="coerce")
+trips["end_date"] = pd.to_datetime(trips["end_date"], errors="coerce")
+if len(trips):
+    trips["days"] = (trips["end_date"] - trips["start_date"]).dt.days.clip(lower=1)
+else:
+    trips["days"] = pd.Series(dtype="Int64")
 
-# Compute food per trip from meals
-if {"trip_id", "cost_usd"}.issubset(meals.columns):
+trips["cost_per_day"] = (
+    pd.to_numeric(trips.get("total_cost_usd", pd.Series(dtype="float")), errors="coerce").fillna(0) /
+    trips["days"].replace({0: 1})
+).round(2)
+
+# Compute food per trip from meals (safe on empty)
+if {"trip_id", "cost_usd"}.issubset(meals.columns) and len(meals):
     meals = meals.copy()
     meals["cost_usd"] = pd.to_numeric(meals["cost_usd"], errors="coerce").fillna(0)
     meals["trip_id"] = pd.to_numeric(meals["trip_id"], errors="coerce").astype("Int64")
@@ -141,8 +187,12 @@ else:
 trips["food_cost_usd"] = pd.to_numeric(trips["food_cost_usd"], errors="coerce").fillna(0).clip(lower=0)
 trips["year"] = year_series(pd.to_datetime(trips["start_date"], errors="coerce"))
 
+# Write back after derivations
+st.session_state.trips_df = trips
+st.session_state.meals_df = meals
+
 # -------------------------
-#   ➕ ADD / MANAGE DATA (no CSV knowledge needed)
+#   ➕ ADD / MANAGE DATA (no CSVs needed)
 # -------------------------
 st.markdown("## ➕ Add / Manage Data")
 tab_add_trip, tab_add_meal, tab_edit = st.tabs(["Add Trip", "Add Meal", "Edit Tables"])
@@ -166,12 +216,12 @@ with tab_add_trip:
             notes = st.text_input("Notes (optional)", placeholder="Cherry blossom season!")
         submitted = st.form_submit_button("Add trip")
     if submitted:
-        # Basic validation
         if not trip_name or not primary_city or not country or start_date is None or end_date is None:
             st.error("Please fill all required fields (marked with *).")
         elif pd.to_datetime(end_date) < pd.to_datetime(start_date):
             st.error("End date cannot be before start date.")
         else:
+            trips = st.session_state.trips_df
             new_id = next_int(trips["trip_id"]) if "trip_id" in trips.columns else 1
             new_row = {
                 "trip_id": new_id,
@@ -192,14 +242,13 @@ with tab_add_trip:
 
 with tab_add_meal:
     st.write("Add a meal for one of the trips in view.")
-    if trips.empty:
+    if st.session_state.trips_df.empty:
         st.info("Add a trip first.")
     else:
         with st.form("form_add_meal", clear_on_submit=True):
             colA, colB, colC = st.columns(3)
             with colA:
-                # Friendly chooser shows "Trip Name (ID)"
-                trip_options = trips.sort_values("start_date")[["trip_id", "trip_name"]].copy()
+                trip_options = st.session_state.trips_df.sort_values("start_date")[["trip_id", "trip_name"]].copy()
                 trip_options["label"] = trip_options["trip_name"] + " (" + trip_options["trip_id"].astype(str) + ")"
                 trip_choice = st.selectbox("Trip *", trip_options["label"].tolist())
                 cuisine = st.text_input("Cuisine *", placeholder="Japanese")
@@ -213,11 +262,9 @@ with tab_add_meal:
                 notes_meal = st.text_input("Notes (optional)", placeholder="Late-night bowl after Shibuya.")
             submitted_meal = st.form_submit_button("Add meal")
         if submitted_meal:
-            if not cuisine or date is None or cost_usd is None:
+            if not cuisine or date is None:
                 st.error("Please complete all required fields.")
             else:
-                # Parse selected trip_id back out
-                # label is "Trip Name (ID)"
                 try:
                     sel = trip_options.iloc[[trip_options["label"].tolist().index(trip_choice)]].iloc[0]
                     use_trip_id = int(sel["trip_id"])
@@ -225,6 +272,7 @@ with tab_add_meal:
                     st.error("Could not read the selected trip. Please try again.")
                     use_trip_id = None
                 if use_trip_id is not None:
+                    meals = st.session_state.meals_df
                     new_meal_id = next_int(meals["meal_id"]) if "meal_id" in meals.columns else 1
                     new_row = {
                         "meal_id": new_meal_id,
@@ -238,7 +286,7 @@ with tab_add_meal:
                         "notes": notes_meal,
                     }
                     st.session_state.meals_df = pd.concat([meals, pd.DataFrame([new_row])], ignore_index=True)
-                    st.success(f"Meal “{dish_name or cuisine}” added to trip ID {use_trip_id}!")
+                    st.success(f"Meal “{dish_name or cuisine}” added to trip “{sel['trip_name']}”!")
 
 with tab_edit:
     st.write("You can make quick edits below (affects this session only).")
@@ -258,14 +306,12 @@ with tab_edit:
         )
     with e2:
         st.write("**Meals (editable)**")
-        # Ensure date shows as date-only in editor
         meals_show = st.session_state.meals_df.copy()
         if "date" in meals_show.columns:
             meals_show["date"] = pd.to_datetime(meals_show["date"], errors="coerce").dt.date
         st.session_state.meals_df = st.data_editor(
             meals_show, use_container_width=True, num_rows="dynamic", key="edit_meals"
         )
-        # Convert back to datetime for downstream calcs
         if "date" in st.session_state.meals_df.columns:
             st.session_state.meals_df["date"] = pd.to_datetime(st.session_state.meals_df["date"], errors="coerce")
         st.download_button(
@@ -276,7 +322,7 @@ with tab_edit:
             key="dl_meals_csv",
         )
 
-# Refresh local working copies after edits/additions
+# Refresh working copies after edits/additions
 trips = st.session_state.trips_df.copy()
 meals = st.session_state.meals_df.copy()
 
@@ -284,11 +330,17 @@ meals = st.session_state.meals_df.copy()
 for col in ["lat", "lon", "total_cost_usd", "transportation_cost_usd", "accommodation_cost_usd"]:
     if col in trips.columns:
         trips[col] = pd.to_numeric(trips[col], errors="coerce")
-
-trips["days"] = (pd.to_datetime(trips["end_date"], errors="coerce") - pd.to_datetime(trips["start_date"], errors="coerce")).dt.days.clip(lower=1)
-trips["cost_per_day"] = (pd.to_numeric(trips["total_cost_usd"], errors="coerce").fillna(0) / trips["days"]).round(2)
-
-if {"trip_id", "cost_usd"}.issubset(meals.columns):
+trips["start_date"] = pd.to_datetime(trips["start_date"], errors="coerce")
+trips["end_date"] = pd.to_datetime(trips["end_date"], errors="coerce")
+if len(trips):
+    trips["days"] = (trips["end_date"] - trips["start_date"]).dt.days.clip(lower=1)
+else:
+    trips["days"] = pd.Series(dtype="Int64")
+trips["cost_per_day"] = (
+    pd.to_numeric(trips.get("total_cost_usd", pd.Series(dtype="float")), errors="coerce").fillna(0) /
+    trips["days"].replace({0: 1})
+).round(2)
+if {"trip_id", "cost_usd"}.issubset(meals.columns) and len(meals):
     meals["cost_usd"] = pd.to_numeric(meals["cost_usd"], errors="coerce").fillna(0)
     meals["trip_id"] = pd.to_numeric(meals["trip_id"], errors="coerce").astype("Int64")
     food_by_trip = meals.groupby("trip_id", dropna=False)["cost_usd"].sum().rename("food_cost_usd")
@@ -311,10 +363,10 @@ search = st.sidebar.text_input("Search trips/cities", placeholder="e.g., Tokyo")
 show_labels = st.sidebar.checkbox("Show values on bars", value=True)
 sort_by = st.sidebar.selectbox("Sort bars by", ["Start date", "Trip name", "Value"], index=0)
 
-mask = trips["country"].isin(sel_countries) & trips["year"].isin(sel_years)
-t = trips.loc[mask].copy()
+mask = trips["country"].isin(sel_countries) & trips["year"].isin(sel_years) if len(trips) else pd.Series([], dtype=bool)
+t = trips.loc[mask].copy() if len(trips) else trips.copy()
 
-if search:
+if len(t) and search:
     s = search.strip().lower()
     cols = ["trip_name", "primary_city"] + (["notes"] if "notes" in t.columns else [])
     search_mask = False
@@ -322,27 +374,14 @@ if search:
         search_mask = search_mask | t[c].astype(str).str.lower().str.contains(s, na=False)
     t = t.loc[search_mask].copy()
 
-if t.empty:
-    st.info("No trips match the current filters/search.")
-    st.stop()
-
-def sort_frame(df, value_col=None):
-    if sort_by == "Start date":
-        return df.sort_values("start_date")
-    if sort_by == "Trip name":
-        return df.sort_values("trip_name")
-    if sort_by == "Value" and value_col is not None:
-        return df.sort_values(value_col, ascending=False)
-    return df
-
 # -------------------------
 #   METRICS
 # -------------------------
 c1, c2, c3, c4 = st.columns(4)
 with c1: st.metric("Trips", f"{len(t)}")
-with c2: st.metric("Countries", f"{t['country'].nunique()}")
-with c3: st.metric("Total Spend (USD)", f"${int(pd.to_numeric(t['total_cost_usd'], errors='coerce').fillna(0).sum()):,}")
-with c4: st.metric("Median Cost/Day", f"${t['cost_per_day'].median():,.2f}")
+with c2: st.metric("Countries", f"{t['country'].nunique() if len(t) else 0}")
+with c3: st.metric("Total Spend (USD)", f"${int(pd.to_numeric(t.get('total_cost_usd', pd.Series(dtype='float')), errors='coerce').fillna(0).sum()):,}")
+with c4: st.metric("Median Cost/Day", f"${(t['cost_per_day'].median() if len(t) else 0):,.2f}")
 
 st.markdown("---")
 
@@ -350,35 +389,42 @@ st.markdown("---")
 #   MAP + TOTAL SPEND
 # -------------------------
 col1, col2 = st.columns([1.25, 1])
+
 with col1:
     st.subheader("🗺️ Where you've been")
-    fig_map = px.scatter_geo(
-        t, lat="lat", lon="lon", hover_name="trip_name",
-        hover_data={"country": True,"total_cost_usd": True,"days": True,"lat": False,"lon": False},
-        projection="natural earth",
-    )
-    fig_map.update_traces(marker=dict(color="red", size=9, line=dict(width=1, color="black")))
-    fig_map.update_geos(showcountries=True, showframe=False, landcolor="lightgray", oceancolor="lightblue", showocean=True)
-    fig_map.update_layout(margin=dict(l=0,r=0,t=0,b=0), height=450, template="simple_white")
-    st.plotly_chart(fig_map, use_container_width=True, config=PLOTLY_CONFIG)
-    add_download(fig_map, "map.png", key="dl_map")
+    if len(t):
+        fig_map = px.scatter_geo(
+            t, lat="lat", lon="lon", hover_name="trip_name",
+            hover_data={"country": True,"total_cost_usd": True,"days": True,"lat": False,"lon": False},
+            projection="natural earth",
+        )
+        fig_map.update_traces(marker=dict(color="red", size=9, line=dict(width=1, color="black")))
+        fig_map.update_geos(showcountries=True, showframe=False, landcolor="lightgray", oceancolor="lightblue", showocean=True)
+        fig_map.update_layout(margin=dict(l=0,r=0,t=0,b=0), height=450, template="simple_white")
+        st.plotly_chart(fig_map, use_container_width=True, config=PLOTLY_CONFIG)
+        add_download(fig_map, "map.png", key="dl_map")
+    else:
+        st.info("No trips yet. Add your first trip in **Add / Manage Data → Add Trip**.")
 
 with col2:
     st.subheader("💵 Total spend per trip")
-    df_total = sort_frame(t, "total_cost_usd")
-    fig_cost = px.bar(
-        df_total, x="trip_name", y="total_cost_usd",
-        labels={"trip_name": "Trip", "total_cost_usd": "USD"},
-        color="total_cost_usd", color_continuous_scale="Tealgrn",
-    )
-    if show_labels:
-        fig_cost.update_traces(text=df_total["total_cost_usd"].map(lambda v: f"${int(v):,}"),
-                               textposition="outside", cliponaxis=False)
-    fig_cost.update_traces(hovertemplate="<b>%{x}</b><br>USD: %{y:,}<extra></extra>")
-    fig_cost.update_layout(xaxis_tickangle=-20)
-    apply_common_layout(fig_cost, height=450)
-    st.plotly_chart(fig_cost, use_container_width=True, config=PLOTLY_CONFIG)
-    add_download(fig_cost, "total_spend.png", key="dl_total")
+    if len(t):
+        df_total = t.sort_values("start_date") if sort_by == "Start date" else t.sort_values("trip_name") if sort_by == "Trip name" else t.sort_values("total_cost_usd", ascending=False)
+        fig_cost = px.bar(
+            df_total, x="trip_name", y="total_cost_usd",
+            labels={"trip_name": "Trip", "total_cost_usd": "USD"},
+            color="total_cost_usd", color_continuous_scale="Tealgrn",
+        )
+        if show_labels:
+            fig_cost.update_traces(text=df_total["total_cost_usd"].map(lambda v: f"${int(v):,}"),
+                                   textposition="outside", cliponaxis=False)
+        fig_cost.update_traces(hovertemplate="<b>%{x}</b><br>USD: %{y:,}<extra></extra>")
+        fig_cost.update_layout(xaxis_tickangle=-20)
+        apply_common_layout(fig_cost, height=450)
+        st.plotly_chart(fig_cost, use_container_width=True, config=PLOTLY_CONFIG)
+        add_download(fig_cost, "total_spend.png", key="dl_total")
+    else:
+        st.info("Add some trips to see spending charts.")
 
 st.markdown("---")
 
@@ -386,22 +432,22 @@ st.markdown("---")
 #   COST PER DAY
 # -------------------------
 st.subheader("🏆 Cost per day leaderboard")
-df_cpd = t.sort_values("cost_per_day", ascending=True).copy()
-fig_cpd = px.bar(
-    df_cpd, x="cost_per_day", y="trip_name", orientation="h",
-    labels={"cost_per_day": "USD per day","trip_name": "Trip"},
-    color="cost_per_day", color_continuous_scale="Blugrn",
-)
-if show_labels:
-    fig_cpd.update_traces(text=df_cpd["cost_per_day"].map(lambda v: f"${v:,.2f}"),
-                          textposition="outside", cliponaxis=False)
-fig_cpd.update_traces(hovertemplate="<b>%{y}</b><br>USD/day: %{x:,.2f}<extra></extra>")
-median_cpd = float(df_cpd["cost_per_day"].median()) if len(df_cpd) else 0
-fig_cpd.add_vline(x=median_cpd, line_dash="dash", line_width=2)
-fig_cpd.add_annotation(x=median_cpd, y=-0.5, text=f"Median: ${median_cpd:,.2f}", showarrow=False, yshift=-20)
-apply_common_layout(fig_cpd, height=520)
-st.plotly_chart(fig_cpd, use_container_width=True, config=PLOTLY_CONFIG)
-add_download(fig_cpd, "cost_per_day.png", key="dl_cpd")
+if len(t):
+    df_cpd = t.sort_values("cost_per_day", ascending=True).copy()
+    fig_cpd = px.bar(
+        df_cpd, x="cost_per_day", y="trip_name", orientation="h",
+        labels={"cost_per_day": "USD per day","trip_name": "Trip"},
+        color="cost_per_day", color_continuous_scale="Blugrn",
+    )
+    if show_labels:
+        fig_cpd.update_traces(text=df_cpd["cost_per_day"].map(lambda v: f"${v:,.2f}"),
+                              textposition="outside", cliponaxis=False)
+    fig_cpd.update_traces(hovertemplate="<b>%{y}</b><br>USD/day: %{x:,.2f}<extra></extra>")
+    apply_common_layout(fig_cpd, height=520)
+    st.plotly_chart(fig_cpd, use_container_width=True, config=PLOTLY_CONFIG)
+    add_download(fig_cpd, "cost_per_day.png", key="dl_cpd")
+else:
+    st.info("Add some trips to see the cost-per-day leaderboard.")
 
 st.markdown("---")
 
@@ -409,14 +455,20 @@ st.markdown("---")
 #   FOOD RATINGS
 # -------------------------
 st.subheader("🍴 Food Ratings")
-if {"trip_id","cuisine","rating_1_10"}.issubset(meals.columns):
+if {"trip_id","cuisine","rating_1_10"}.issubset(meals.columns) and len(meals) and len(t):
     meals_r = meals.copy()
     meals_r["rating_1_10"] = pd.to_numeric(meals_r["rating_1_10"], errors="coerce")
+
     if "date" in meals_r.columns:
         meals_r["date_str"] = pd.to_datetime(meals_r["date"], errors="coerce").dt.strftime("%Y-%m-%d")
+
     meals_r = meals_r[meals_r["trip_id"].isin(t["trip_id"])]
-    # Bring in trip_name for display
-    meals_r = meals_r.merge(t[["trip_id", "trip_name"]], how="left", on="trip_id")
+
+    meals_r = meals_r.merge(
+        t[["trip_id", "trip_name"]],
+        how="left",
+        on="trip_id"
+    )
 
     if meals_r.empty:
         st.info("No meals match the current filters.")
@@ -449,7 +501,7 @@ if {"trip_id","cuisine","rating_1_10"}.issubset(meals.columns):
         st.plotly_chart(fig_cuisine, use_container_width=True, config=PLOTLY_CONFIG)
         add_download(fig_cuisine, "food_ratings_cuisines.png", key="dl_cuisine")
 else:
-    st.info("Your meals.csv needs columns: 'trip_id','cuisine','rating_1_10'.")
+    st.info("Add meals (and at least one trip) to see Food Ratings.")
 
 st.markdown("---")
 
@@ -457,24 +509,26 @@ st.markdown("---")
 #   TRANSPORT / FOOD / ACCOM
 # -------------------------
 st.subheader("🚗 Transportation spend per trip")
-if "transportation_cost_usd" in t.columns:
-    df_tr = sort_frame(t,"transportation_cost_usd")
+if "transportation_cost_usd" in t.columns and len(t) and t["transportation_cost_usd"].notna().any():
+    df_tr = t.sort_values("start_date")
     fig_transport = px.bar(
         df_tr, x="trip_name", y="transportation_cost_usd",
         labels={"trip_name":"Trip","transportation_cost_usd":"USD"},
         color="transportation_cost_usd", color_continuous_scale="Tealgrn",
     )
     if show_labels:
-        fig_transport.update_traces(text=df_tr["transportation_cost_usd"].map(lambda v: f"${int(v):,}"),
+        fig_transport.update_traces(text=df_tr["transportation_cost_usd"].fillna(0).map(lambda v: f"${int(v):,}"),
                                     textposition="outside", cliponaxis=False)
     fig_transport.update_traces(hovertemplate="<b>%{x}</b><br>USD: %{y:,}<extra></extra>")
     fig_transport.update_layout(xaxis_tickangle=-20)
     apply_common_layout(fig_transport)
     st.plotly_chart(fig_transport, use_container_width=True, config=PLOTLY_CONFIG)
     add_download(fig_transport,"transportation.png",key="dl_transport")
+else:
+    st.info("Add trips with transportation costs to see this chart.")
 
 st.subheader("🍜 Food spend per trip")
-if {"trip_id","cost_usd"}.issubset(meals.columns):
+if {"trip_id","cost_usd"}.issubset(meals.columns) and len(meals) and len(t):
     meals_f = meals.copy()
     meals_f["cost_usd"] = pd.to_numeric(meals_f["cost_usd"], errors="coerce").fillna(0)
     meals_f["trip_id"] = pd.to_numeric(meals_f["trip_id"], errors="coerce").astype("Int64")
@@ -484,7 +538,7 @@ if {"trip_id","cost_usd"}.issubset(meals.columns):
     tf = tf.merge(food_by_trip_f, how="left", left_on="trip_id", right_index=True)
     tf["food_cost_usd"] = pd.to_numeric(tf["food_cost_usd"], errors="coerce").fillna(0)
 
-    df_food = sort_frame(tf,"food_cost_usd")
+    df_food = tf.sort_values("start_date")
     fig_food = px.bar(
         df_food, x="trip_name", y="food_cost_usd",
         labels={"trip_name":"Trip","food_cost_usd":"USD"},
@@ -498,22 +552,26 @@ if {"trip_id","cost_usd"}.issubset(meals.columns):
     apply_common_layout(fig_food)
     st.plotly_chart(fig_food, use_container_width=True, config=PLOTLY_CONFIG)
     add_download(fig_food,"food_spend.png",key="dl_food")
+else:
+    st.info("Add meals to see food totals per trip.")
 
 st.subheader("🏨 Accommodation spend per trip")
-if "accommodation_cost_usd" in t.columns:
-    df_ac = sort_frame(t,"accommodation_cost_usd")
+if "accommodation_cost_usd" in t.columns and len(t) and t["accommodation_cost_usd"].notna().any():
+    df_ac = t.sort_values("start_date")
     fig_accom = px.bar(
         df_ac, x="trip_name", y="accommodation_cost_usd",
         labels={"trip_name":"Trip","accommodation_cost_usd":"USD"},
         color="accommodation_cost_usd", color_continuous_scale="Purples",
     )
     if show_labels:
-        fig_accom.update_traces(text=df_ac["accommodation_cost_usd"].map(lambda v: f"${int(v):,}"),
+        fig_accom.update_traces(text=df_ac["accommodation_cost_usd"].fillna(0).map(lambda v: f"${int(v):,}"),
                                 textposition="outside", cliponaxis=False)
     fig_accom.update_traces(hovertemplate="<b>%{x}</b><br>USD: %{y:,}<extra></extra>")
     fig_accom.update_layout(xaxis_tickangle=-20)
     apply_common_layout(fig_accom)
     st.plotly_chart(fig_accom, use_container_width=True, config=PLOTLY_CONFIG)
     add_download(fig_accom,"accommodation.png",key="dl_accom")
+else:
+    st.info("Add trips with accommodation costs to see this chart.")
 
 st.caption("To persist new entries for everyone, download the updated CSVs above and commit them to your repo. We can also wire a real backend (Google Sheets / Supabase) later for automatic saving.")
