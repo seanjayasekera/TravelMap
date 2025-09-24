@@ -234,45 +234,62 @@ if {"trip_id","cuisine","rating_1_10"}.issubset(meals.columns):
     meals_r = meals.copy()
     meals_r["rating_1_10"] = pd.to_numeric(meals_r["rating_1_10"], errors="coerce")
 
-    # ✅ Force a pure date string to avoid any time display
+    # Force pure date strings for display
     if "date" in meals_r.columns:
         meals_r["date_str"] = pd.to_datetime(meals_r["date"], errors="coerce").dt.strftime("%Y-%m-%d")
 
-    # Keep only meals belonging to filtered trips
+    # Filter meals to trips currently in view
     meals_r = meals_r[meals_r["trip_id"].isin(t["trip_id"])]
+
+    # 🔗 Bring in trip_name so we can display names instead of IDs
+    meals_r = meals_r.merge(
+        t[["trip_id", "trip_name"]],
+        how="left",
+        on="trip_id"
+    )
 
     if meals_r.empty:
         st.info("No meals match the current filters.")
     else:
-        # Prefer date_str, then rename to 'date' for a nice header
-        display_cols = [c for c in ["meal_id","trip_id","date_str","cuisine","restaurant","dish_name","rating_1_10","cost_usd"] if c in meals_r.columns]
-        sort_col = "meal_id" if "meal_id" in meals_r.columns else "trip_id"
+        # Build table with trip_name (no trip_id)
+        display_cols = [c for c in ["meal_id","trip_name","date_str","cuisine","restaurant","dish_name","rating_1_10","cost_usd"] if c in meals_r.columns]
+        sort_col = "meal_id" if "meal_id" in meals_r.columns else "trip_name"
         table_df = meals_r[display_cols].sort_values(sort_col, ascending=True).reset_index(drop=True)
         table_df = table_df.rename(columns={"date_str": "date"})
 
-        # Cuisine averages
+        # Hide index reliably
+        try:
+            st.dataframe(table_df, use_container_width=True, hide_index=True)
+        except TypeError:
+            sty = table_df.style
+            try:
+                sty = sty.hide(axis="index")
+            except Exception:
+                try:
+                    sty = sty.hide_index()
+                except Exception:
+                    pass
+            st.dataframe(sty, use_container_width=True)
+
+        # Cuisine averages chart
         top_cuisines = (
             meals_r.dropna(subset=["cuisine","rating_1_10"])
                    .groupby("cuisine", as_index=False)
                    .agg(avg_rating=("rating_1_10","mean"), count=("rating_1_10","size"))
                    .sort_values(["avg_rating","count"], ascending=[False,False])
         )
-
-        c1,c2 = st.columns([1,1])
-        with c1: st.dataframe(table_df, use_container_width=True)
-        with c2:
-            fig_cuisine = px.bar(
-                top_cuisines, x="cuisine", y="avg_rating",
-                hover_data=["count"], labels={"avg_rating":"Avg Rating"},
-                color="avg_rating", color_continuous_scale="Viridis", range_y=[0,10],
-            )
-            if show_labels:
-                fig_cuisine.update_traces(text=top_cuisines["avg_rating"].map(lambda v: f"{v:.1f}"),
-                                          textposition="outside", cliponaxis=False)
-            fig_cuisine.update_layout(xaxis_tickangle=-30)
-            apply_common_layout(fig_cuisine)
-            st.plotly_chart(fig_cuisine, use_container_width=True, config=PLOTLY_CONFIG)
-            add_download(fig_cuisine, "food_ratings_cuisines.png", key="dl_cuisine")
+        fig_cuisine = px.bar(
+            top_cuisines, x="cuisine", y="avg_rating",
+            hover_data=["count"], labels={"avg_rating":"Avg Rating"},
+            color="avg_rating", color_continuous_scale="Viridis", range_y=[0,10],
+        )
+        if show_labels:
+            fig_cuisine.update_traces(text=top_cuisines["avg_rating"].map(lambda v: f"{v:.1f}"),
+                                      textposition="outside", cliponaxis=False)
+        fig_cuisine.update_layout(xaxis_tickangle=-30)
+        apply_common_layout(fig_cuisine)
+        st.plotly_chart(fig_cuisine, use_container_width=True, config=PLOTLY_CONFIG)
+        add_download(fig_cuisine, "food_ratings_cuisines.png", key="dl_cuisine")
 else:
     st.info("Your meals.csv needs columns: 'trip_id','cuisine','rating_1_10'.")
 
