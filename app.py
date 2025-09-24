@@ -241,7 +241,7 @@ if {"trip_id","cuisine","rating_1_10"}.issubset(meals.columns):
     # Filter meals to trips currently in view
     meals_r = meals_r[meals_r["trip_id"].isin(t["trip_id"])]
 
-    # 🔗 Bring in trip_name so we can display names instead of IDs
+    # Bring in trip_name (so we can show names instead of IDs)
     meals_r = meals_r.merge(
         t[["trip_id", "trip_name"]],
         how="left",
@@ -257,19 +257,11 @@ if {"trip_id","cuisine","rating_1_10"}.issubset(meals.columns):
         table_df = meals_r[display_cols].sort_values(sort_col, ascending=True).reset_index(drop=True)
         table_df = table_df.rename(columns={"date_str": "date"})
 
-        # Hide index reliably
+        # Show table; hide index if supported (no Styler fallback to avoid JS errors)
         try:
             st.dataframe(table_df, use_container_width=True, hide_index=True)
         except TypeError:
-            sty = table_df.style
-            try:
-                sty = sty.hide(axis="index")
-            except Exception:
-                try:
-                    sty = sty.hide_index()
-                except Exception:
-                    pass
-            st.dataframe(sty, use_container_width=True)
+            st.dataframe(table_df, use_container_width=True)
 
         # Cuisine averages chart
         top_cuisines = (
