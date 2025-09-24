@@ -144,7 +144,7 @@ with st.sidebar.expander("Data check", expanded=False):
     st.write("Rows:", len(meals))
     st.write("Contains `dish_name`? →", "✅ yes" if "dish_name" in meals.columns else "❌ no")
     st.write("Contains `rating_1_10`? →", "✅ yes" if "rating_1_10" in meals.columns else "❌ no")
-    st.write("Geocoder:", "✅ enabled" if GEOCODER_OK else "⚠️ install `geopy` to enable auto-fill")
+    st.write("Geocoder:", "✅ enabled" if GEOCODER_OK else "⚠️ add `geopy>=2.4` to requirements.txt")
 
 # -------------------------
 #   BASIC SCHEMA (ensure required cols exist even if empty)
@@ -218,9 +218,7 @@ with tab_add_trip:
             transportation_cost_usd = st.number_input("Transportation cost (USD)", min_value=0.0, step=5.0, value=0.0)
         with colB:
             end_date = st.date_input("End date *")
-            # Lat/Lon optional — auto-fill available
-            lat_str = st.text_input("Latitude (optional) — auto-filled from city", placeholder="")
-            lon_str = st.text_input("Longitude (optional) — auto-filled from city", placeholder="")
+            # NOTE: Lat/Lon fields removed entirely; we will auto-fill from City + Country.
             accommodation_cost_usd = st.number_input("Accommodation cost (USD)", min_value=0.0, step=5.0, value=0.0)
             notes = st.text_input("Notes (optional)", placeholder="Cherry blossom season!")
         auto_coords = st.checkbox("Auto-fill coordinates from city & country", value=True)
@@ -232,30 +230,17 @@ with tab_add_trip:
         elif pd.to_datetime(end_date) < pd.to_datetime(start_date):
             st.error("End date cannot be before start date.")
         else:
-            # Parse manual lat/lon if provided
-            lat_val = None
-            lon_val = None
-            if lat_str.strip():
-                try: lat_val = float(lat_str)
-                except Exception: st.warning("Latitude couldn’t be parsed; will attempt auto-fill.")
-            if lon_str.strip():
-                try: lon_val = float(lon_str)
-                except Exception: st.warning("Longitude couldn’t be parsed; will attempt auto-fill.")
-
-            # Auto-fill if requested and missing
-            if (lat_val is None or lon_val is None) and auto_coords:
+            # Always try geocoding if enabled; otherwise default to 0/0
+            lat_val, lon_val = (0.0, 0.0)
+            if auto_coords:
                 coords = geocode_city_country(primary_city, country)
                 if coords:
                     lat_val, lon_val = coords
                 else:
                     if GEOCODER_OK:
-                        st.warning("Couldn’t auto-find coordinates for that city/country. You can enter them manually.")
+                        st.warning("Couldn’t auto-find coordinates for that city/country. Using (0.0, 0.0).")
                     else:
                         st.info("To enable auto-fill, add `geopy>=2.4` to requirements.txt.")
-
-            # Final fallback (never leave NaN)
-            if lat_val is None: lat_val = 0.0
-            if lon_val is None: lon_val = 0.0
 
             trips = st.session_state.trips_df
             new_id = next_int(trips["trip_id"]) if "trip_id" in trips.columns else 1
@@ -276,7 +261,7 @@ with tab_add_trip:
             st.session_state.trips_df = pd.concat([trips, pd.DataFrame([new_row])], ignore_index=True)
 
             msg = f"Trip “{trip_name}” added!"
-            if auto_coords and (not lat_str.strip() or not lon_str.strip()) and (lat_val or lon_val):
+            if auto_coords and (lat_val or lon_val):
                 msg += f"  (Auto-filled coords: {lat_val:.4f}, {lon_val:.4f})"
             st.success(msg)
 
