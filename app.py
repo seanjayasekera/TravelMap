@@ -11,6 +11,21 @@ st.title("🌍 Travel Dashboard")
 st.caption("Trips, spend, cuisines — separate Transportation, Food, and Accommodation charts with filters, search, ratings, and PNG export")
 
 # -------------------------
+#   KALEIDO DETECTION & CONFIG
+# -------------------------
+try:
+    import kaleido  # noqa: F401
+    KALEIDO_OK = True
+except Exception:
+    KALEIDO_OK = False
+
+# If kaleido isn't available (e.g., in some cloud builds), enable Plotly's client-side toImage button
+PLOTLY_CONFIG = {
+    "displaylogo": False,
+    "modeBarButtonsToAdd": ["toImage"] if not KALEIDO_OK else [],
+}
+
+# -------------------------
 #   HELPERS
 # -------------------------
 def read_csv_with_fallback(uploaded, default_path, **read_kwargs):
@@ -36,6 +51,8 @@ def apply_common_layout(fig, height=420):
 
 def fig_png_bytes(fig, scale=2):
     """Return PNG bytes if kaleido is available; otherwise None."""
+    if not KALEIDO_OK:
+        return None
     try:
         return fig.to_image(format="png", scale=scale)
     except Exception:
@@ -46,7 +63,8 @@ def add_download(fig, filename, key):
     if png:
         st.download_button("⬇️ Download PNG", data=png, file_name=filename, mime="image/png", key=key)
     else:
-        st.caption("ℹ️ To enable PNG downloads, add `kaleido` to requirements and rerun.")
+        # Silent: we rely on the modebar toImage button when kaleido isn't present
+        pass
 
 # -------------------------
 #   LOAD DATA
@@ -108,6 +126,12 @@ sel_years = st.sidebar.multiselect("Year", years, default=years)
 search = st.sidebar.text_input("Search trips/cities", placeholder="e.g., Tokyo, honeymoon, road trip")
 show_labels = st.sidebar.checkbox("Show values on bars", value=True)
 sort_by = st.sidebar.selectbox("Sort bars by", ["Start date", "Trip name", "Value"], index=0)
+
+# Small diagnostics so you know what's happening on the cloud
+with st.sidebar.expander("System status", expanded=False):
+    st.write("Kaleido:", "✅ found" if KALEIDO_OK else "❌ missing")
+    st.caption("If missing, use the chart toolbar’s camera icon to download PNGs. "
+               "To enable server-side buttons, ensure kaleido installs on your deployment.")
 
 # Apply filters
 mask = trips["country"].isin(sel_countries) & trips["year"].isin(sel_years)
@@ -176,7 +200,7 @@ with col1:
         landcolor="lightgray", oceancolor="lightblue", showocean=True
     )
     fig_map.update_layout(margin=dict(l=0, r=0, t=0, b=0), height=450, template="simple_white")
-    st.plotly_chart(fig_map, use_container_width=True)
+    st.plotly_chart(fig_map, use_container_width=True, config=PLOTLY_CONFIG)
     add_download(fig_map, "map.png", key="dl_map")
 
 with col2:
@@ -194,7 +218,7 @@ with col2:
     fig_cost.update_traces(hovertemplate="<b>%{x}</b><br>USD: %{y:,}<extra></extra>")
     fig_cost.update_layout(xaxis_tickangle=-20)
     apply_common_layout(fig_cost, height=450)
-    st.plotly_chart(fig_cost, use_container_width=True)
+    st.plotly_chart(fig_cost, use_container_width=True, config=PLOTLY_CONFIG)
     add_download(fig_cost, "total_spend.png", key="dl_total")
 
 st.markdown("---")
@@ -218,7 +242,7 @@ median_cpd = float(df_cpd["cost_per_day"].median()) if len(df_cpd) else 0
 fig_cpd.add_vline(x=median_cpd, line_dash="dash", line_width=2)
 fig_cpd.add_annotation(x=median_cpd, y=-0.5, text=f"Median: ${median_cpd:,.2f}", showarrow=False, yshift=-20)
 apply_common_layout(fig_cpd, height=520)
-st.plotly_chart(fig_cpd, use_container_width=True)
+st.plotly_chart(fig_cpd, use_container_width=True, config=PLOTLY_CONFIG)
 add_download(fig_cpd, "cost_per_day.png", key="dl_cpd")
 
 st.markdown("---")
@@ -228,21 +252,19 @@ st.markdown("---")
 # ======================================
 st.subheader("🍴 Food Ratings")
 if {"trip_id", "cuisine", "rating_1_10"}.issubset(meals.columns):
-    # Filter meals to the *currently selected* trips
     meals_r = meals.copy()
     meals_r["rating_1_10"] = pd.to_numeric(meals_r["rating_1_10"], errors="coerce")
-    # Keep only meals that belong to the filtered trips
     meals_r = meals_r[meals_r["trip_id"].isin(t["trip_id"])]
 
     if meals_r.empty:
         st.info("No meals match the current filters. Add meals or widen your filters.")
     else:
-        # ---- Left: table ordered by ID (meal_id if present, else trip_id) ----
-        display_cols = [c for c in ["meal_id","trip_id","date","cuisine","restaurant","rating_1_10","cost_usd"] if c in meals_r.columns]
+        # Table ordered by meal_id if present; otherwise trip_id
+        display_cols = [c for c in ["meal_id","trip_id","date","cuisine","restaurant","dish_name","rating_1_10","cost_usd"] if c in meals_r.columns]
         sort_col = "meal_id" if "meal_id" in meals_r.columns else "trip_id"
         table_df = meals_r[display_cols].sort_values(sort_col, ascending=True).reset_index(drop=True)
 
-        # ---- Right: bar chart of average rating by cuisine ----
+        # Bar chart of average rating by cuisine
         top_cuisines = (
             meals_r.dropna(subset=["cuisine", "rating_1_10"])
                    .groupby("cuisine", as_index=False)
@@ -268,7 +290,7 @@ if {"trip_id", "cuisine", "rating_1_10"}.issubset(meals.columns):
                                           textposition="outside", cliponaxis=False)
             fig_cuisine.update_layout(xaxis_tickangle=-30)
             apply_common_layout(fig_cuisine)
-            st.plotly_chart(fig_cuisine, use_container_width=True)
+            st.plotly_chart(fig_cuisine, use_container_width=True, config=PLOTLY_CONFIG)
             add_download(fig_cuisine, "food_ratings_cuisines.png", key="dl_cuisine")
 else:
     st.info("Your meals.csv needs columns: 'trip_id', 'cuisine', and 'rating_1_10' for food ratings.")
@@ -295,7 +317,7 @@ if "transportation_cost_usd" in t.columns:
     fig_transport.update_traces(hovertemplate="<b>%{x}</b><br>USD: %{y:,}<extra></extra>")
     fig_transport.update_layout(xaxis_tickangle=-20)
     apply_common_layout(fig_transport)
-    st.plotly_chart(fig_transport, use_container_width=True)
+    st.plotly_chart(fig_transport, use_container_width=True, config=PLOTLY_CONFIG)
     add_download(fig_transport, "transportation.png", key="dl_transport")
 else:
     st.info("Add a 'transportation_cost_usd' column to trips.csv to see this chart.")
@@ -325,7 +347,7 @@ if {"trip_id", "cost_usd"}.issubset(meals.columns):
     fig_food.update_traces(hovertemplate="<b>%{x}</b><br>USD: %{y:,}<extra></extra>")
     fig_food.update_layout(xaxis_tickangle=-20)
     apply_common_layout(fig_food)
-    st.plotly_chart(fig_food, use_container_width=True)
+    st.plotly_chart(fig_food, use_container_width=True, config=PLOTLY_CONFIG)
     add_download(fig_food, "food_spend.png", key="dl_food")
 else:
     st.info("Your meals.csv needs 'trip_id' and 'cost_usd' to compute food totals.")
@@ -346,9 +368,9 @@ if "accommodation_cost_usd" in t.columns:
     fig_accom.update_traces(hovertemplate="<b>%{x}</b><br>USD: %{y:,}<extra></extra>")
     fig_accom.update_layout(xaxis_tickangle=-20)
     apply_common_layout(fig_accom)
-    st.plotly_chart(fig_accom, use_container_width=True)
+    st.plotly_chart(fig_accom, use_container_width=True, config=PLOTLY_CONFIG)
     add_download(fig_accom, "accommodation.png", key="dl_accom")
 else:
     st.info("Add an 'accommodation_cost_usd' column to trips.csv to see this chart.")
 
-st.caption("Use the sidebar to filter by country/year and search trips. PNG downloads require `kaleido`.")
+st.caption("If you don't see '⬇️ Download PNG' buttons, use the chart toolbar's camera icon. To enable buttons server-side, ensure 'kaleido' installs on your deployment.")
