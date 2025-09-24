@@ -208,20 +208,28 @@ tab_add_trip, tab_add_meal, tab_edit = st.tabs(["Add Trip", "Add Meal", "Edit Ta
 with tab_add_trip:
     st.write("Add a new trip. Fields with * are required.")
     with st.form("form_add_trip", clear_on_submit=True):
-        colA, colB = st.columns(2)
-        with colA:
+        # Row 1: basic info
+        c1, c2 = st.columns(2)
+        with c1:
             trip_name = st.text_input("Trip name *", placeholder="Tokyo Spring Break")
             primary_city = st.text_input("Primary city *", placeholder="Tokyo")
             country = st.text_input("Country *", placeholder="Japan")
-            start_date = st.date_input("Start date *")
+        with c2:
             total_cost_usd = st.number_input("Total cost (USD) *", min_value=0.0, step=10.0)
             transportation_cost_usd = st.number_input("Transportation cost (USD)", min_value=0.0, step=5.0, value=0.0)
-        with colB:
-            end_date = st.date_input("End date *")
-            # NOTE: Lat/Lon fields removed entirely; we will auto-fill from City + Country.
             accommodation_cost_usd = st.number_input("Accommodation cost (USD)", min_value=0.0, step=5.0, value=0.0)
-            notes = st.text_input("Notes (optional)", placeholder="Cherry blossom season!")
+
+        # Row 2: dates side-by-side (requested change)
+        d1, d2 = st.columns(2)
+        with d1:
+            start_date = st.date_input("Start date *")
+        with d2:
+            end_date = st.date_input("End date *")
+
+        # Notes + auto-fill toggle
+        notes = st.text_input("Notes (optional)", placeholder="Cherry blossom season!")
         auto_coords = st.checkbox("Auto-fill coordinates from city & country", value=True)
+
         submitted = st.form_submit_button("Add trip")
 
     if submitted:
