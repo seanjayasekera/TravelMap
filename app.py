@@ -39,7 +39,7 @@ def geocode_city_country(city: str, country: str):
         return None
     try:
         geolocator = Nominatim(user_agent="travel_dashboard_sean", timeout=6)
-        geocode = RateLimiter(geolocator.geocode, min_delay_seconds=1)  # be nice to OSM
+        geocode = RateLimiter(geolocator.geocode, min_delay_seconds=1)
         loc = geocode(f"{city}, {country}")
         if loc:
             return float(loc.latitude), float(loc.longitude)
@@ -79,11 +79,6 @@ def empty_meals_df() -> pd.DataFrame:
         "notes": pd.Series(dtype="string"),
     })
 
-def read_uploaded_or_empty(uploaded, parse_dates=None, empty_factory=None):
-    if uploaded is not None:
-        return pd.read_csv(uploaded, parse_dates=parse_dates)
-    return empty_factory() if empty_factory else pd.DataFrame()
-
 def year_series(dts):
     try:
         return dts.dt.year
@@ -117,28 +112,63 @@ def next_int(series):
     return (s.max() + 1) if len(s) else 1
 
 # -------------------------
-#   LOAD DATA (EMPTY BY DEFAULT)
+#   LOAD / REPLACE DATA (EMPTY BY DEFAULT)
 # -------------------------
 st.sidebar.header("Upload your CSVs (optional)")
-up_trips = st.sidebar.file_uploader("trips.csv", type=["csv"])
-up_meals = st.sidebar.file_uploader("meals.csv", type=["csv"])
 
-trips_loaded = read_uploaded_or_empty(up_trips, parse_dates=["start_date", "end_date"], empty_factory=empty_trips_df)
-meals_loaded = read_uploaded_or_empty(up_meals, parse_dates=["date"], empty_factory=empty_meals_df)
+# Buttons to clear current session data
+col_clear1, col_clear2 = st.sidebar.columns(2)
+with col_clear1:
+    if st.button("Clear trips", use_container_width=True):
+        st.session_state.trips_df = empty_trips_df()
+        st.sidebar.success("Trips cleared.")
+with col_clear2:
+    if st.button("Clear meals", use_container_width=True):
+        st.session_state.meals_df = empty_meals_df()
+        st.sidebar.success("Meals cleared.")
 
-# Initialize session-state authoritative copies
+up_trips = st.sidebar.file_uploader("trips.csv", type=["csv"], key="uploader_trips")
+up_meals = st.sidebar.file_uploader("meals.csv", type=["csv"], key="uploader_meals")
+
+# Initialize session-state if missing
 if "trips_df" not in st.session_state:
-    st.session_state.trips_df = trips_loaded.copy()
+    st.session_state.trips_df = empty_trips_df()
 if "meals_df" not in st.session_state:
-    st.session_state.meals_df = meals_loaded.copy()
+    st.session_state.meals_df = empty_meals_df()
 
-trips = st.session_state.trips_df
-meals = st.session_state.meals_df
+# 🔁 NEW: Replace data immediately when files are uploaded
+if up_trips is not None:
+    try:
+        trips_loaded = pd.read_csv(up_trips, parse_dates=["start_date", "end_date"])
+    except Exception:
+        # fallback if date columns are missing or different
+        trips_loaded = pd.read_csv(up_trips)
+        for c in ["start_date", "end_date"]:
+            if c in trips_loaded.columns:
+                trips_loaded[c] = pd.to_datetime(trips_loaded[c], errors="coerce")
+    st.session_state.trips_df = trips_loaded
+    st.sidebar.success(f"Loaded {len(trips_loaded)} trip(s) from uploads.")
+
+if up_meals is not None:
+    try:
+        meals_loaded = pd.read_csv(up_meals, parse_dates=["date"])
+    except Exception:
+        meals_loaded = pd.read_csv(up_meals)
+        if "date" in meals_loaded.columns:
+            meals_loaded["date"] = pd.to_datetime(meals_loaded["date"], errors="coerce")
+    st.session_state.meals_df = meals_loaded
+    st.sidebar.success(f"Loaded {len(meals_loaded)} meal(s) from uploads.")
+
+trips = st.session_state.trips_df.copy()
+meals = st.session_state.meals_df.copy()
 
 # -------------------------
 #   LIGHT SIDEBAR DIAGNOSTICS
 # -------------------------
 with st.sidebar.expander("Data check", expanded=False):
+    st.write("**trips.csv columns:**")
+    st.code(", ".join(map(str, trips.columns)))
+    st.write("Rows:", len(trips))
     st.write("**meals.csv columns:**")
     st.code(", ".join(map(str, meals.columns)))
     st.write("Rows:", len(meals))
@@ -208,7 +238,7 @@ tab_add_trip, tab_add_meal, tab_edit = st.tabs(["Add Trip", "Add Meal", "Edit Ta
 with tab_add_trip:
     st.write("Add a new trip. Fields with * are required.")
     with st.form("form_add_trip", clear_on_submit=True):
-        # Row 1: basic info
+        # Row 1: basics (left) & costs+notes (right)
         c1, c2 = st.columns(2)
         with c1:
             trip_name = st.text_input("Trip name *", placeholder="Tokyo Spring Break")
@@ -218,18 +248,16 @@ with tab_add_trip:
             total_cost_usd = st.number_input("Total cost (USD) *", min_value=0.0, step=10.0)
             transportation_cost_usd = st.number_input("Transportation cost (USD)", min_value=0.0, step=5.0, value=0.0)
             accommodation_cost_usd = st.number_input("Accommodation cost (USD)", min_value=0.0, step=5.0, value=0.0)
+            notes = st.text_input("Notes (optional)", placeholder="Cherry blossom season!")
 
-        # Row 2: dates side-by-side (requested change)
+        # Row 2: dates side-by-side
         d1, d2 = st.columns(2)
         with d1:
             start_date = st.date_input("Start date *")
         with d2:
             end_date = st.date_input("End date *")
 
-        # Notes + auto-fill toggle
-        notes = st.text_input("Notes (optional)", placeholder="Cherry blossom season!")
         auto_coords = st.checkbox("Auto-fill coordinates from city & country", value=True)
-
         submitted = st.form_submit_button("Add trip")
 
     if submitted:
@@ -238,7 +266,6 @@ with tab_add_trip:
         elif pd.to_datetime(end_date) < pd.to_datetime(start_date):
             st.error("End date cannot be before start date.")
         else:
-            # Always try geocoding if enabled; otherwise default to 0/0
             lat_val, lon_val = (0.0, 0.0)
             if auto_coords:
                 coords = geocode_city_country(primary_city, country)
@@ -250,8 +277,8 @@ with tab_add_trip:
                     else:
                         st.info("To enable auto-fill, add `geopy>=2.4` to requirements.txt.")
 
-            trips = st.session_state.trips_df
-            new_id = next_int(trips["trip_id"]) if "trip_id" in trips.columns else 1
+            trips_cur = st.session_state.trips_df
+            new_id = next_int(trips_cur["trip_id"]) if "trip_id" in trips_cur.columns else 1
             new_row = {
                 "trip_id": new_id,
                 "trip_name": trip_name,
@@ -266,7 +293,7 @@ with tab_add_trip:
                 "accommodation_cost_usd": float(accommodation_cost_usd),
                 "notes": notes,
             }
-            st.session_state.trips_df = pd.concat([trips, pd.DataFrame([new_row])], ignore_index=True)
+            st.session_state.trips_df = pd.concat([trips_cur, pd.DataFrame([new_row])], ignore_index=True)
 
             msg = f"Trip “{trip_name}” added!"
             if auto_coords and (lat_val or lon_val):
@@ -305,8 +332,8 @@ with tab_add_meal:
                     st.error("Could not read the selected trip. Please try again.")
                     use_trip_id = None
                 if use_trip_id is not None:
-                    meals = st.session_state.meals_df
-                    new_meal_id = next_int(meals["meal_id"]) if "meal_id" in meals.columns else 1
+                    meals_cur = st.session_state.meals_df
+                    new_meal_id = next_int(meals_cur["meal_id"]) if "meal_id" in meals_cur.columns else 1
                     new_row = {
                         "meal_id": new_meal_id,
                         "trip_id": use_trip_id,
@@ -318,7 +345,7 @@ with tab_add_meal:
                         "date": pd.to_datetime(date),
                         "notes": notes_meal,
                     }
-                    st.session_state.meals_df = pd.concat([meals, pd.DataFrame([new_row])], ignore_index=True)
+                    st.session_state.meals_df = pd.concat([meals_cur, pd.DataFrame([new_row])], ignore_index=True)
                     st.success(f"Meal “{dish_name or cuisine}” added to trip “{sel['trip_name']}”!")
 
 with tab_edit:
