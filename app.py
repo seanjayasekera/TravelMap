@@ -74,14 +74,19 @@ trips = read_csv_with_fallback(up_trips, data_dir / "trips.csv", parse_dates=["s
 meals = read_csv_with_fallback(up_meals, data_dir / "meals.csv", parse_dates=["date"])
 
 # -------------------------
-#   QUICK DIAGNOSTICS
+#   LIGHTWEIGHT SIDEBAR DIAGNOSTICS (no interactive dataframe here)
 # -------------------------
 with st.sidebar.expander("Data check", expanded=False):
-    st.write("**meals.csv columns:**", list(meals.columns))
+    st.write("**meals.csv columns:**")
+    st.code(", ".join(map(str, meals.columns)))
     st.write("Contains `dish_name`? →", "✅ yes" if "dish_name" in meals.columns else "❌ no")
     st.write("Contains `rating_1_10`? →", "✅ yes" if "rating_1_10" in meals.columns else "❌ no")
     try:
-        st.dataframe(meals.head(), use_container_width=True)
+        preview = meals.head(5).copy()
+        # ensure plain strings to avoid rich cell types
+        for c in preview.columns:
+            preview[c] = preview[c].astype(str)
+        st.table(preview)  # static table (no JS module import)
     except Exception as e:
         st.write("Couldn't display preview:", e)
 
@@ -257,7 +262,7 @@ if {"trip_id","cuisine","rating_1_10"}.issubset(meals.columns):
         table_df = meals_r[display_cols].sort_values(sort_col, ascending=True).reset_index(drop=True)
         table_df = table_df.rename(columns={"date_str": "date"})
 
-        # Show table; hide index if supported (no Styler fallback to avoid JS errors)
+        # Show table; hide index if supported
         try:
             st.dataframe(table_df, use_container_width=True, hide_index=True)
         except TypeError:
