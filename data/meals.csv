@@ -1,2 +1,21 @@
 meal_id,trip_id,date,cuisine,restaurant,dish_name,rating_1_10,cost_usd
-1,1,2023-03-16,Japanese,Ichiran,Tonkotsu Ramen,9,12
+1,1,2023-03-15,French,Le Meurice,Croissant,2,12
+2,1,2023-03-15,American,Shake Shack,Burger,3,14
+3,2,2022-07-05,American,Shake Shack,Burger,4,16
+4,2,2022-07-05,Italian,Da Enzo,Pasta,5,18
+5,3,2021-10-01,Italian,Da Enzo,Pasta,6,20
+6,3,2021-10-01,Thai,Somtum Der,Pad Thai,7,22
+7,4,2020-12-10,Thai,Somtum Der,Pad Thai,8,24
+8,4,2020-12-10,South African,Gold Restaurant,Bobotie,9,26
+9,5,2019-05-01,South African,Gold Restaurant,Bobotie,10,28
+10,5,2019-05-01,Canadian,Canoe,Poutine,1,30
+11,6,2023-11-01,Canadian,Canoe,Poutine,2,32
+12,6,2023-11-01,Turkish,Nusr-Et,Kebap,3,34
+13,7,2022-02-10,Turkish,Nusr-Et,Kebap,4,36
+14,7,2022-02-10,Brazilian,Fogo de Chão,Feijoada,5,38
+15,8,2021-08-01,Brazilian,Fogo de Chão,Feijoada,6,10
+16,8,2021-08-01,Japanese,Ichiran,Ramen,7,12
+17,9,2018-09-12,Japanese,Ichiran,Ramen,8,14
+18,9,2018-09-12,French,Le Meurice,Croissant,9,16
+19,10,2017-02-20,French,Le Meurice,Croissant,10,18
+20,10,2017-02-20,American,Shake Shack,Burger,1,20
