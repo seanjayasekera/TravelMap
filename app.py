@@ -153,7 +153,7 @@ def geocode_city_country(city: str, country: str):
     return None
 
 # =========================
-#   HELPERS
+#   HELPERS (NO 'notes' COLUMNS)
 # =========================
 def empty_trips_df() -> pd.DataFrame:
     return pd.DataFrame({
@@ -168,7 +168,6 @@ def empty_trips_df() -> pd.DataFrame:
         "total_cost_usd": pd.Series(dtype="float"),
         "transportation_cost_usd": pd.Series(dtype="float"),
         "accommodation_cost_usd": pd.Series(dtype="float"),
-        "notes": pd.Series(dtype="string"),
     })
 
 def empty_meals_df() -> pd.DataFrame:
@@ -181,7 +180,6 @@ def empty_meals_df() -> pd.DataFrame:
         "dish_name": pd.Series(dtype="string"),
         "rating_1_10": pd.Series(dtype="Int64"),
         "cost_usd": pd.Series(dtype="float"),
-        "notes": pd.Series(dtype="string"),
     })
 
 def year_series(dts):
@@ -200,7 +198,7 @@ def df_to_csv_bytes(df: pd.DataFrame) -> bytes:
     return buf.getvalue().encode("utf-8")
 
 def template_trips_bytes() -> bytes:
-    # headers + ONE EXAMPLE ROW
+    # headers + ONE EXAMPLE ROW (no notes)
     df = pd.DataFrame([{
         "trip_id": 1,
         "trip_name": "Tokyo Spring Break",
@@ -213,12 +211,11 @@ def template_trips_bytes() -> bytes:
         "total_cost_usd": 2000,
         "transportation_cost_usd": 600,
         "accommodation_cost_usd": 800,
-        "notes": "Cherry blossoms",
     }])
     return df_to_csv_bytes(df)
 
 def template_meals_bytes() -> bytes:
-    # headers + ONE EXAMPLE ROW
+    # headers + ONE EXAMPLE ROW (no notes)
     df = pd.DataFrame([{
         "meal_id": 1,
         "trip_id": 1,
@@ -228,7 +225,6 @@ def template_meals_bytes() -> bytes:
         "dish_name": "Tonkotsu Ramen",
         "rating_1_10": 9,
         "cost_usd": 12,
-        "notes": "Late-night bowl",
     }])
     return df_to_csv_bytes(df)
 
@@ -348,7 +344,7 @@ st.session_state.trips_df = trips
 st.session_state.meals_df = meals
 
 # =========================
-#   ➕ ADD / MANAGE DATA
+#   ➕ ADD / MANAGE DATA (NO NOTES)
 # =========================
 st.markdown("## ➕ Add / Manage Data")
 tab_add_trip, tab_add_meal, tab_edit = st.tabs(["Add Trip", "Add Meal", "Edit Tables"])
@@ -365,7 +361,6 @@ with tab_add_trip:
             total_cost_usd = st.number_input("Total cost (USD) *", min_value=0.0, step=10.0)
             transportation_cost_usd = st.number_input("Transportation cost (USD)", min_value=0.0, step=5.0, value=0.0)
             accommodation_cost_usd = st.number_input("Accommodation cost (USD)", min_value=0.0, step=5.0, value=0.0)
-            notes = st.text_input("Notes (optional)", placeholder="Cherry blossoms season")
         d1, d2 = st.columns(2)
         with d1:
             start_date = st.date_input("Start date *")
@@ -404,7 +399,6 @@ with tab_add_trip:
                 "total_cost_usd": float(total_cost_usd),
                 "transportation_cost_usd": float(transportation_cost_usd),
                 "accommodation_cost_usd": float(accommodation_cost_usd),
-                "notes": notes,
             }
             st.session_state.trips_df = pd.concat([cur, pd.DataFrame([new_row])], ignore_index=True)
             st.success(f"Trip “{trip_name}” added!")
@@ -428,7 +422,6 @@ with tab_add_meal:
                 rating_1_10 = st.slider("Rating (1–10) *", 1, 10, 8)
             with colC:
                 date = st.date_input("Meal date *")
-                notes_meal = st.text_input("Notes (optional)", placeholder="Late-night bowl.")
             submitted_meal = st.form_submit_button("Add meal")
         if submitted_meal:
             if not cuisine or date is None:
@@ -452,7 +445,6 @@ with tab_add_meal:
                         "cost_usd": float(cost_usd),
                         "rating_1_10": int(rating_1_10),
                         "date": pd.to_datetime(date),
-                        "notes": notes_meal,
                     }
                     st.session_state.meals_df = pd.concat([cur, pd.DataFrame([new_row])], ignore_index=True)
                     st.success(f"Meal “{dish_name or cuisine}” added to trip “{sel['trip_name']}”!")
@@ -533,7 +525,7 @@ t = trips.loc[mask].copy() if len(trips) else trips.copy()
 if len(t) and search:
     s = search.strip()
     search_mask = pd.Series(False, index=t.index)
-    for c in ["trip_name", "primary_city"] + (["notes"] if "notes" in t.columns else []):
+    for c in ["trip_name", "primary_city"]:
         search_mask |= t[c].astype(str).str.contains(s, case=False, na=False)
     t = t.loc[search_mask].copy()
 
