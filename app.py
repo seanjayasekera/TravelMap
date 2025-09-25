@@ -1,7 +1,15 @@
+import base64
+from io import StringIO as _StringIO, BytesIO
 import streamlit as st
 import pandas as pd
 import plotly.express as px
-from io import StringIO
+
+# Optional: server-side fetch for default background
+try:
+    import requests
+    REQUESTS_OK = True
+except Exception:
+    REQUESTS_OK = False
 
 # =========================
 #   PAGE / THEME SETTINGS
@@ -10,11 +18,43 @@ st.set_page_config(page_title="Travel Dashboard", page_icon="🌍", layout="wide
 st.title("🌍 Travel Dashboard")
 st.caption("Add trips & meals in-app • Auto-fill map coordinates from City + Country • Explore maps & costs")
 
-# --- Robust background (uses a fixed pseudo-element so it always shows) ---
-# If you prefer a different map, just replace IMAGE_URL below.
-st.markdown("""
+# =========================
+#   BACKGROUND (DATA-URI)
+# =========================
+def to_data_uri(img_bytes: bytes, mime: str = "image/jpeg") -> str:
+    b64 = base64.b64encode(img_bytes).decode("ascii")
+    return f"data:{mime};base64,{b64}"
+
+def fetch_bytes(url: str, timeout: int = 10) -> bytes | None:
+    if not REQUESTS_OK:
+        return None
+    try:
+        r = requests.get(url, timeout=timeout)
+        if r.ok:
+            return r.content
+    except Exception:
+        pass
+    return None
+
+# Sidebar: allow custom background upload (embedded)
+st.sidebar.header("🎨 Background (optional)")
+bg_file = st.sidebar.file_uploader("Upload a JPG/PNG for the background", type=["jpg", "jpeg", "png"])
+
+# Dark, high-contrast world map (public-domain) as default
+DEFAULT_BG_URL = "https://upload.wikimedia.org/wikipedia/commons/2/21/Mercator_projection_SW.jpg"
+bg_bytes = None
+
+if bg_file is not None:
+    bg_bytes = bg_file.read()
+else:
+    bg_bytes = fetch_bytes(DEFAULT_BG_URL)
+
+bg_uri = to_data_uri(bg_bytes) if bg_bytes else None
+
+# Build CSS safely without f-strings (avoid tokenizer issues with braces)
+css = """
 <style>
-/* Make all base layers transparent so our image is visible */
+/* Make base layers transparent so our image shows */
 html, body, .stApp, [data-testid="stAppViewContainer"] { background: transparent !important; }
 
 /* Full-viewport background via pseudo-element */
@@ -23,23 +63,19 @@ html, body, .stApp, [data-testid="stAppViewContainer"] { background: transparent
   position: fixed;
   inset: 0;
   z-index: -1;
-  background:
-    linear-gradient(rgba(0,0,0,0.08), rgba(0,0,0,0.08)),
-    url('https://upload.wikimedia.org/wikipedia/commons/2/21/Mercator_projection_SW.jpg')
-    center center / cover no-repeat;
-  filter: brightness(0.75) contrast(1.1);
+  BACKDROP_PLACEHOLDER
 }
 
 /* Glass panels */
 .block-container {
-  background: rgba(255, 255, 255, 0.88);
+  background: rgba(255, 255, 255, 0.90);
   backdrop-filter: blur(6px);
   -webkit-backdrop-filter: blur(6px);
   border-radius: 16px;
   padding: 1.2rem 1.4rem;
 }
 [data-testid="stSidebar"] > div:first-child {
-  background: rgba(255, 255, 255, 0.88);
+  background: rgba(255, 255, 255, 0.90);
   backdrop-filter: blur(6px);
   -webkit-backdrop-filter: blur(6px);
 }
@@ -48,7 +84,25 @@ html, body, .stApp, [data-testid="stAppViewContainer"] { background: transparent
 h1, h2, h3, h4, h5, h6 { color: #0f172a; }
 .js-plotly-plot .plotly .bg { fill: rgba(255,255,255,0.0) !important; }
 </style>
-""", unsafe_allow_html=True)
+"""
+
+if bg_uri:
+    bg_rule = f"""
+  background:
+    linear-gradient(rgba(0,0,0,0.12), rgba(0,0,0,0.12)),
+    url('{bg_uri}') center center / cover no-repeat;
+  filter: brightness(0.8) contrast(1.12);
+"""
+else:
+    # Graceful fallback if image fetch failed
+    bg_rule = """
+  background:
+    radial-gradient(1200px 800px at 20% 10%, rgba(0,0,0,0.08), transparent 60%),
+    radial-gradient(1000px 700px at 80% 90%, rgba(0,0,0,0.08), transparent 60%),
+    linear-gradient(180deg, #e8eef4 0%, #f6f7fb 100%);
+"""
+
+st.markdown(css.replace("BACKDROP_PLACEHOLDER", bg_rule), unsafe_allow_html=True)
 
 # -------------------------
 #   KALEIDO DETECTION & CONFIG (optional PNG export)
@@ -128,7 +182,6 @@ def apply_common_layout(fig, height=420):
     fig.update_layout(template="simple_white", height=height, margin=dict(t=30, r=10, l=10, b=10), coloraxis_showscale=False)
     return fig
 
-from io import StringIO as _StringIO
 def df_to_csv_bytes(df: pd.DataFrame) -> bytes:
     buf = _StringIO()
     df.to_csv(buf, index=False)
@@ -341,15 +394,14 @@ with tab_add_trip:
             st.error("End date cannot be before start date.")
         else:
             lat_val, lon_val = (0.0, 0.0)
-            if auto_coords:
+            if auto_coords and GEOCODER_OK:
                 coords = geocode_city_country(primary_city, country)
                 if coords:
                     lat_val, lon_val = coords
                 else:
-                    if GEOCODER_OK:
-                        st.warning("Couldn’t auto-find coordinates for that city/country. Using (0.0, 0.0).")
-                    else:
-                        st.info("To enable auto-fill, add `geopy>=2.4` to requirements.txt.")
+                    st.warning("Couldn’t auto-find coordinates for that city/country. Using (0.0, 0.0).")
+            elif auto_coords and not GEOCODER_OK:
+                st.info("To enable auto-fill, add `geopy>=2.4` to requirements.txt.")
 
             cur = st.session_state.trips_df
             new_id = next_int(cur["trip_id"]) if "trip_id" in cur.columns else 1
