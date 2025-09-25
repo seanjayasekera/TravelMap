@@ -10,42 +10,42 @@ st.set_page_config(page_title="Travel Dashboard", page_icon="🌍", layout="wide
 st.title("🌍 Travel Dashboard")
 st.caption("Add trips & meals in-app • Auto-fill map coordinates from City + Country • Explore maps & costs")
 
-# --- Themed world map background (Unsplash) ---
-BACKGROUND_URL = "https://images.unsplash.com/photo-1502920918898-54c8a3a7e1f5"  # world map texture
-st.markdown(f"""
+# --- Themed world map background (no f-string to avoid tokenize errors) ---
+st.markdown("""
 <style>
 /* App background */
-.stApp {{
-  background: linear-gradient(rgba(0,0,0,0.25), rgba(0,0,0,0.25))),
-              url('{BACKGROUND_URL}') no-repeat center center fixed;
+.stApp {
+  background:
+    linear-gradient(rgba(0,0,0,0.25), rgba(0,0,0,0.25)),
+    url('https://images.unsplash.com/photo-1502920918898-54c8a3a7e1f5') no-repeat center center fixed;
   background-size: cover;
-}}
+}
 
 /* Main page "glass" card */
-.block-container {{
+.block-container {
   background: rgba(255, 255, 255, 0.88);
   backdrop-filter: blur(6px);
   -webkit-backdrop-filter: blur(6px);
   border-radius: 16px;
   padding: 1.2rem 1.4rem;
-}}
+}
 
 /* Sidebar glass card */
-[data-testid="stSidebar"] > div:first-child {{
+[data-testid="stSidebar"] > div:first-child {
   background: rgba(255, 255, 255, 0.88);
   backdrop-filter: blur(6px);
   -webkit-backdrop-filter: blur(6px);
-}}
+}
 
 /* Optional: soften headers a bit */
-h1, h2, h3, h4, h5, h6 {{
+h1, h2, h3, h4, h5, h6 {
   color: #0f172a; /* slate-900 */
-}}
+}
 
 /* Optional: tighten Plotly chart bg */
-.js-plotly-plot .plotly .bg {{
+.js-plotly-plot .plotly .bg {
   fill: rgba(255,255,255,0.0) !important;
-}}
+}
 </style>
 """, unsafe_allow_html=True)
 
@@ -494,7 +494,7 @@ if len(t) and search:
     cols = ["trip_name", "primary_city"] + (["notes"] if "notes" in t.columns else [])
     search_mask = False
     for c in cols:
-        search_mask = search_mask | t[c].astype(str).str.lower().str.contains(s, na=False)
+        search_mask = search_mask | t[c].astype(str).str.lower().str_contains(s, regex=False, na=False)
     t = t.loc[search_mask].copy()
 
 # Metrics
