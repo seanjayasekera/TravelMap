@@ -78,7 +78,7 @@ if not bg_found:
     st.caption("⚠️ `background.jpg` not found — using gradient fallback. Place it next to `app.py` and redeploy.")
 
 # =========================
-#   PANEL & SIDEBAR STYLES (fixed)
+#   PANEL & SIDEBAR STYLES (NAVY)
 # =========================
 panel_rgba = "rgba(255,255,255,0.60)"
 
@@ -94,33 +94,38 @@ st.markdown(f"""
   box-shadow: 0 10px 30px rgba(0,0,0,0.08);
 }}
 
-/* --- SIDEBAR: force parchment beige --- */
+/* --- SIDEBAR: navy blue --- */
 section[data-testid="stSidebar"],
 [data-testid="stSidebar"] {{
-  background-color: #f5f0e6 !important;   /* parchment beige */
-  color: #2b2b2b !important;
-  border-right: 1px solid #e0d8c8 !important;
+  background-color: #0f2557 !important;   /* NAVY */
+  color: #f5f7fa !important;              /* near-white text */
+  border-right: 1px solid #0a1a34 !important;
 }}
-
 /* Inner scrollable content */
 [data-testid="stSidebar"] > div:first-child,
 [data-testid="stSidebar"] [data-testid="stSidebarContent"] {{
-  background-color: transparent !important;   /* show the beige parent */
+  background-color: transparent !important;
   padding: 0.8rem !important;
 }}
-
-[data-testid="stSidebar"] * {{
-  color: #2b2b2b !important;
-}}
-
+/* Typography in sidebar */
+[data-testid="stSidebar"] * {{ color: #f5f7fa !important; }}
 [data-testid="stSidebar"] h2, 
-[data-testid="stSidebar"] h3 {{
-  color: #1f2937 !important;
+[data-testid="stSidebar"] h3,
+[data-testid="stSidebar"] label {{
+  color: #e8ecf5 !important;
 }}
-
+/* Inputs on dark sidebar */
+[data-testid="stSidebar"] input, 
+[data-testid="stSidebar"] textarea,
+[data-testid="stSidebar"] select {{
+  background: #0a1a34 !important;
+  color: #f5f7fa !important;
+  border: 1px solid #1c366a !important;
+}}
+/* Expander panels in sidebar */
 [data-testid="stSidebar"] [data-testid="stExpander"] > div {{
-  background: #f9f5ed !important;
-  border: 1px solid #e7dfcf !important;
+  background: #142f66 !important;
+  border: 1px solid #1c3d80 !important;
   border-radius: 10px !important;
 }}
 
@@ -129,7 +134,7 @@ section[data-testid="stSidebar"],
 h1, h2, h3, h4, h5, h6 {{ color: #0f172a; }}
 
 /* Theme var (helps newer Streamlit builds) */
-:root {{ --sidebar-background-color: #f5f0e6; }}
+:root {{ --sidebar-background-color: #0f2557; }}
 </style>
 """, unsafe_allow_html=True)
 
@@ -228,7 +233,7 @@ def df_to_csv_bytes(df: pd.DataFrame) -> bytes:
     return buf.getvalue().encode("utf-8")
 
 def template_trips_bytes() -> bytes:
-    # headers + ONE EXAMPLE ROW (no notes)
+    # headers + ONE EXAMPLE ROW
     df = pd.DataFrame([{
         "trip_id": 1,
         "trip_name": "Tokyo Spring Break",
@@ -245,7 +250,7 @@ def template_trips_bytes() -> bytes:
     return df_to_csv_bytes(df)
 
 def template_meals_bytes() -> bytes:
-    # headers + ONE EXAMPLE ROW (no notes)
+    # headers + ONE EXAMPLE ROW
     df = pd.DataFrame([{
         "meal_id": 1,
         "trip_id": 1,
@@ -374,7 +379,7 @@ st.session_state.trips_df = trips
 st.session_state.meals_df = meals
 
 # =========================
-#   ➕ ADD / MANAGE DATA (NO NOTES)
+#   ➕ ADD / MANAGE DATA
 # =========================
 st.markdown("## ➕ Add / Manage Data")
 tab_add_trip, tab_add_meal, tab_edit = st.tabs(["Add Trip", "Add Meal", "Edit Tables"])
@@ -611,8 +616,6 @@ with col2:
         apply_common_layout(fig_cost, height=450)
         st.plotly_chart(fig_cost, use_container_width=True, config=PLOTLY_CONFIG)
         add_download(fig_cost, "total_spend.png", key="dl_total")
-    else:
-        st.info("Add some trips to see spending charts.")
 
 st.markdown("---")
 
@@ -634,8 +637,6 @@ if len(t):
     apply_common_layout(fig_cpd, height=520)
     st.plotly_chart(fig_cpd, use_container_width=True, config=PLOTLY_CONFIG)
     add_download(fig_cpd, "cost_per_day.png", key="dl_cpd")
-else:
-    st.info("Add some trips to see the cost-per-day leaderboard.")
 
 st.markdown("---")
 
@@ -705,8 +706,6 @@ if "transportation_cost_usd" in t.columns and len(t) and t["transportation_cost_
     apply_common_layout(fig_transport)
     st.plotly_chart(fig_transport, use_container_width=True, config=PLOTLY_CONFIG)
     add_download(fig_transport,"transportation.png",key="dl_transport")
-else:
-    st.info("Add trips with transportation costs to see this chart.")
 
 st.subheader("🍜 Food spend per trip")
 if {"trip_id","cost_usd"}.issubset(meals.columns) and len(meals) and len(t):
@@ -733,8 +732,6 @@ if {"trip_id","cost_usd"}.issubset(meals.columns) and len(meals) and len(t):
     apply_common_layout(fig_food)
     st.plotly_chart(fig_food, use_container_width=True, config=PLOTLY_CONFIG)
     add_download(fig_food,"food_spend.png",key="dl_food")
-else:
-    st.info("Add meals to see food totals per trip.")
 
 st.subheader("🏨 Accommodation spend per trip")
 if "accommodation_cost_usd" in t.columns and len(t) and t["accommodation_cost_usd"].notna().any():
@@ -752,8 +749,6 @@ if "accommodation_cost_usd" in t.columns and len(t) and t["accommodation_cost_us
     apply_common_layout(fig_accom)
     st.plotly_chart(fig_accom, use_container_width=True, config=PLOTLY_CONFIG)
     add_download(fig_accom,"accommodation.png",key="dl_accom")
-else:
-    st.info("Add trips with accommodation costs to see this chart.")
 
 # =========================
 #   FOOTER LINK
