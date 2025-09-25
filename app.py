@@ -9,8 +9,27 @@ import plotly.express as px
 #   PAGE / THEME SETTINGS
 # =========================
 st.set_page_config(page_title="Travel Dashboard", page_icon="🌍", layout="wide")
-st.title("🌍 Travel Dashboard")
-st.caption("Add trips & meals in-app • Auto-fill map coordinates • Explore maps & costs")
+
+# --- Sticky top header bar (visible on any background) ---
+st.markdown("""
+<style>
+.topbar {
+  position: sticky; top: 0; z-index: 1000;
+  background: rgba(15,37,87,0.92); /* navy */
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  color: #ffffff; padding: 14px 18px; margin: -1rem -1rem 1rem -1rem;
+  border-bottom: 1px solid rgba(255,255,255,0.12);
+  border-radius: 0 0 12px 12px;
+}
+.topbar h1 { margin: 0; font-size: 1.6rem; line-height: 1.2; }
+.topbar .sub { font-size: 0.95rem; opacity: 0.9; margin-top: 2px; }
+</style>
+<div class="topbar">
+  <h1>🌍 Travel Dashboard</h1>
+  <div class="sub">Add trips & meals in-app • Auto-fill map coordinates • Explore maps & costs</div>
+</div>
+""", unsafe_allow_html=True)
 
 # =========================
 #   MAKE BASE LAYERS TRANSPARENT
@@ -135,10 +154,8 @@ section[data-testid="stSidebar"],
 
 /* Plotly transparent plot area */
 .js-plotly-plot .plotly .bg {{ fill: rgba(255,255,255,0.0) !important; }}
-h1, h2, h3, h4, h5, h6 {{ color: #0f172a; }}
 
-/* Theme var (helps newer Streamlit builds) */
-:root {{ --sidebar-background-color: #0f2557; }}
+/* DO NOT override global heading colors to dark; the topbar is white text */
 </style>
 """, unsafe_allow_html=True)
 
