@@ -1,7 +1,9 @@
+import os
+import base64
+from io import StringIO as _StringIO
 import streamlit as st
 import pandas as pd
 import plotly.express as px
-from io import StringIO
 
 # =========================
 #   PAGE / THEME SETTINGS
@@ -10,61 +12,95 @@ st.set_page_config(page_title="Travel Dashboard", page_icon="🌍", layout="wide
 st.title("🌍 Travel Dashboard")
 st.caption("Add trips & meals in-app • Auto-fill map coordinates from City + Country • Explore maps & costs")
 
-# -------------------------
-#   SIDEBAR: optional background URL override (for quick testing)
-# -------------------------
-st.sidebar.header("🎨 Background (optional)")
-bg_url = st.sidebar.text_input(
-    "Background image URL",
-    value="https://upload.wikimedia.org/wikipedia/commons/2/21/Mercator_projection_SW.jpg",
-    help="Paste any JPG/PNG URL. Darker images work best."
-)
+# =========================
+#   LOCAL BACKGROUND (no external fetch, no data-URI)
+# =========================
+BG_PATH = "background.jpg"  # <-- place your world-map image in repo root with this name
 
-# --- Robust global background on body::before ---
-# (Avoids Streamlit internals and works on Cloud reliably.)
-st.markdown(f"""
+def build_css_with_bg(local_exists: bool) -> str:
+    if local_exists:
+        # Use a fixed <img> layer behind the app; no external URL, survives CSP limits.
+        return """
 <style>
-/* Make base layers transparent so our image shows */
-html, body, .stApp {{
-  background: transparent !important;
-}}
+/* Transparent base so background shows */
+html, body, .stApp { background: transparent !important; }
 
-/* Full-viewport background via body::before */
-body::before {{
-  content: "";
+/* Full-viewport background image layer */
+#_bg_layer_ {
   position: fixed;
   inset: 0;
-  z-index: -1;
-  background-image:
-    linear-gradient(rgba(0,0,0,0.12), rgba(0,0,0,0.12)),
-    url('{bg_url}');
-  background-size: cover;
-  background-position: center center;
-  background-repeat: no-repeat;
-  /* Tweak visibility: increase brightness for dark images; decrease for bright ones */
-  filter: brightness(0.85) contrast(1.15);
-  /* Ensure it's really behind everything */
-  pointer-events: none;
-}}
+  z-index: -1;              /* behind all Streamlit content */
+  pointer-events: none;     /* clicks pass through */
+  overflow: hidden;
+}
+#_bg_layer_ img {
+  position: absolute;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;        /* cover entire viewport */
+  filter: brightness(0.80) contrast(1.15);
+}
 
-/* Glass panels */
-.block-container {{
-  background: rgba(255, 255, 255, 0.90);
+/* Glass UI panels */
+.block-container {
+  background: rgba(255,255,255,0.90);
   backdrop-filter: blur(6px);
   -webkit-backdrop-filter: blur(6px);
   border-radius: 16px;
   padding: 1.2rem 1.4rem;
-}}
-[data-testid="stSidebar"] > div:first-child {{
-  background: rgba(255, 255, 255, 0.90);
+}
+[data-testid="stSidebar"] > div:first-child {
+  background: rgba(255,255,255,0.90);
   backdrop-filter: blur(6px);
   -webkit-backdrop-filter: blur(6px);
-}}
-/* Headings + chart bg */
-h1, h2, h3, h4, h5, h6 {{ color: #0f172a; }}
-.js-plotly-plot .plotly .bg {{ fill: rgba(255,255,255,0.0) !important; }}
+}
+
+/* Headings + charts */
+h1, h2, h3, h4, h5, h6 { color: #0f172a; }
+.js-plotly-plot .plotly .bg { fill: rgba(255,255,255,0.0) !important; }
 </style>
-""", unsafe_allow_html=True)
+<div id="_bg_layer_">
+  <img src="background.jpg" alt="world map background">
+</div>
+"""
+    else:
+        # Graceful fallback if no file is present
+        return """
+<style>
+html, body, .stApp { background: transparent !important; }
+#_bg_layer_ {
+  position: fixed; inset: 0; z-index:-1; pointer-events:none;
+  background:
+    radial-gradient(1200px 800px at 20% 10%, rgba(0,0,0,0.08), transparent 60%),
+    radial-gradient(1000px 700px at 80% 90%, rgba(0,0,0,0.08), transparent 60%),
+    linear-gradient(180deg, #e8eef4 0%, #f6f7fb 100%);
+}
+.block-container {
+  background: rgba(255,255,255,0.92);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  border-radius: 16px;
+  padding: 1.2rem 1.4rem;
+}
+[data-testid="stSidebar"] > div:first-child {
+  background: rgba(255,255,255,0.92);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+}
+h1, h2, h3, h4, h5, h6 { color: #0f172a; }
+.js-plotly-plot .plotly .bg { fill: rgba(255,255,255,0.0) !important; }
+</style>
+<div id="_bg_layer_"></div>
+"""
+
+bg_exists = os.path.exists(BG_PATH)
+st.markdown(build_css_with_bg(bg_exists), unsafe_allow_html=True)
+
+if not bg_exists:
+    st.warning(
+        "Background image not found. Add a **file named `background.jpg`** to the repo root "
+        "to enable the travel-themed background."
+    )
 
 # -------------------------
 #   OPTIONAL GEOCODER (geopy)
@@ -129,7 +165,10 @@ def year_series(dts):
     except Exception:
         return pd.to_datetime(dts, errors="coerce").dt.year
 
-from io import StringIO as _StringIO
+def apply_common_layout(fig, height=420):
+    fig.update_layout(template="simple_white", height=height, margin=dict(t=30, r=10, l=10, b=10), coloraxis_showscale=False)
+    return fig
+
 def df_to_csv_bytes(df: pd.DataFrame) -> bytes:
     buf = _StringIO()
     df.to_csv(buf, index=False)
@@ -195,10 +234,6 @@ def add_download(fig, filename, key):
     png = fig_png_bytes(fig)
     if png:
         st.download_button("⬇️ Download PNG", data=png, file_name=filename, mime="image/png", key=key)
-
-def apply_common_layout(fig, height=420):
-    fig.update_layout(template="simple_white", height=height, margin=dict(t=30, r=10, l=10, b=10), coloraxis_showscale=False)
-    return fig
 
 # -------------------------
 #   SIDEBAR: How to Use, Uploads, Templates, Clear
