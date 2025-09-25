@@ -77,11 +77,15 @@ inject_background_markdown(bg_bytes)
 if not bg_found:
     st.caption("⚠️ `background.jpg` not found — using gradient fallback. Place it next to `app.py` and redeploy.")
 
-# Panel glass styling (transparent enough so the background is visible)
+# =========================
+#   PANEL & SIDEBAR STYLES
+# =========================
+# Main content gets a light glass panel; Sidebar now uses parchment beige (no more grey).
 panel_rgba = "rgba(255,255,255,0.60)"
-sidebar_rgba = "rgba(255,255,255,0.60)"
+
 st.markdown(f"""
 <style>
+/* Main content container (glass look) */
 .block-container {{
   background: {panel_rgba};
   backdrop-filter: blur(6px);
@@ -90,16 +94,32 @@ st.markdown(f"""
   padding: 1.2rem 1.4rem;
   box-shadow: 0 10px 30px rgba(0,0,0,0.08);
 }}
-[data-testid="stSidebar"] > div:first-child {{
-  background: {sidebar_rgba};
-  backdrop-filter: blur(6px);
-  -webkit-backdrop-filter: blur(6px);
-  border-radius: 12px;
-  box-shadow: 0 10px 30px rgba(0,0,0,0.08);
+/* --- SIDEBAR RESTYLE --- */
+[data-testid="stSidebar"] {{
+  background: #f5f0e6;           /* parchment beige */
+  color: #2b2b2b;
+  border-right: 1px solid #e0d8c8;
 }}
-h1, h2, h3, h4, h5, h6 {{ color: #0f172a; }}
+[data-testid="stSidebar"] * {{
+  color: #2b2b2b !important;
+}}
+/* Inner sidebar container */
+[data-testid="stSidebar"] > div:first-child {{
+  background: transparent !important;     /* let the beige show through */
+  padding: 0.8rem;
+}}
+/* Sidebar headers & expanders */
+[data-testid="stSidebar"] h2, [data-testid="stSidebar"] h3 {{
+  color: #1f2937 !important;
+}}
+[data-testid="stSidebar"] [data-testid="stExpander"] > div {{
+  background: #f9f5ed !important;
+  border: 1px solid #e7dfcf;
+  border-radius: 10px;
+}}
 /* Plotly transparent plot area */
 .js-plotly-plot .plotly .bg {{ fill: rgba(255,255,255,0.0) !important; }}
+h1, h2, h3, h4, h5, h6 {{ color: #0f172a; }}
 </style>
 """, unsafe_allow_html=True)
 
