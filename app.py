@@ -14,8 +14,8 @@ st.markdown("""
 html, body, .stApp {
   height: 100%;
   background:
-    linear-gradient(rgba(0,0,0,0.05), rgba(0,0,0,0.05)),
-    url('https://upload.wikimedia.org/wikipedia/commons/thumb/9/9a/BlankMap-World-v2.png/2000px-BlankMap-World-v2.png')
+    linear-gradient(rgba(0,0,0,0.15), rgba(0,0,0,0.15)),
+    url('https://upload.wikimedia.org/wikipedia/commons/2/21/Mercator_projection_SW.jpg')
       no-repeat center center fixed;
   background-size: cover;
 }
