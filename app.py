@@ -2,7 +2,6 @@ import os
 import base64
 from io import StringIO as _StringIO
 import streamlit as st
-import streamlit.components.v1 as components
 import pandas as pd
 import plotly.express as px
 
@@ -36,34 +35,33 @@ html, body, .stApp,
 """, unsafe_allow_html=True)
 
 # =========================
-#   RELIABLE BACKGROUND (HTML component with embedded <img>)
+#   RELIABLE BACKGROUND (NO IFRAMES)
+#   -> injects a fixed DIV + IMG directly into the page via st.markdown
 # =========================
-def inject_background(img_bytes: bytes | None):
-    """
-    Renders a fixed, full-screen background image behind the app via an <img>
-    inside an HTML component. Works even if CSS background-images are blocked.
-    Falls back to a soft gradient if no bytes provided.
-    """
+def inject_background_markdown(img_bytes: bytes | None):
     if not img_bytes:
-        components.html("""
-        <div style="
-            position:fixed; inset:0; z-index:0; pointer-events:none;
-            background:
-              radial-gradient(1200px 800px at 20% 10%, rgba(0,0,0,0.08), transparent 60%),
-              radial-gradient(1000px 700px at 80% 90%, rgba(0,0,0,0.08), transparent 60%),
-              linear-gradient(180deg, #e8eef4 0%, #f6f7fb 100%);
-        "></div>
-        """, height=0)
+        # Gradient fallback
+        st.markdown("""
+<div id="app-bg"
+     style="
+       position:fixed; inset:0; z-index:0; pointer-events:none;
+       background:
+         radial-gradient(1200px 800px at 20% 10%, rgba(0,0,0,0.08), transparent 60%),
+         radial-gradient(1000px 700px at 80% 90%, rgba(0,0,0,0.08), transparent 60%),
+         linear-gradient(180deg, #e8eef4 0%, #f6f7fb 100%);
+     ">
+</div>
+""", unsafe_allow_html=True)
         return
 
     b64 = base64.b64encode(img_bytes).decode("ascii")
-    data_uri = f"data:image/jpeg;base64,{b64}"
-    components.html(f"""
-    <div style="position:fixed; inset:0; z-index:0; pointer-events:none; overflow:hidden;">
-      <img src="{data_uri}"
-           style="width:100%; height:100%; object-fit:cover; filter:brightness(0.80) contrast(1.15);" />
-    </div>
-    """, height=0)
+    st.markdown(f"""
+<div id="app-bg"
+     style="position:fixed; inset:0; z-index:0; pointer-events:none; overflow:hidden;">
+  <img src="data:image/jpeg;base64,{b64}"
+       style="width:100%; height:100%; object-fit:cover; filter:brightness(0.80) contrast(1.15);" />
+</div>
+""", unsafe_allow_html=True)
 
 # =========================
 #   SIDEBAR: Background & Panel Style
@@ -79,20 +77,35 @@ panel_mode = st.sidebar.selectbox(
 
 # Background selection priority: uploader → local file → URL → gradient
 bg_bytes = None
+bg_source = "gradient fallback"
 if bg_file is not None:
     bg_bytes = bg_file.read()
+    bg_source = f"uploader ({getattr(bg_file, 'name', 'uploaded')})"
 elif os.path.exists("background.jpg"):
     with open("background.jpg", "rb") as f:
         bg_bytes = f.read()
+    bg_source = "background.jpg (repo root)"
 elif bg_url and REQUESTS_OK:
     try:
         r = requests.get(bg_url, timeout=10)
         if r.ok:
             bg_bytes = r.content
+            bg_source = "URL"
+        else:
+            bg_source = f"URL (HTTP {r.status_code})"
+    except Exception as e:
+        bg_source = f"URL error: {e.__class__.__name__}"
+
+# Debug readout + preview
+st.sidebar.caption(f"Background source: **{bg_source}**")
+if bg_bytes:
+    try:
+        st.sidebar.image(bg_bytes, caption="Preview", use_container_width=True)
     except Exception:
         pass
 
-inject_background(bg_bytes)
+# Inject background now (no iframes)
+inject_background_markdown(bg_bytes)
 
 # Panel transparency based on mode
 if panel_mode.startswith("Showcase"):
@@ -587,8 +600,7 @@ with col1:
         fig_map.update_traces(marker=dict(color="red", size=9, line=dict(width=1, color="black")))
         fig_map.update_geos(showcountries=True, showframe=False, landcolor="lightgray", oceancolor="lightblue", showocean=True)
         fig_map.update_layout(margin=dict(l=0,r=0,t=0,b=0), height=450, template="simple_white")
-        st.plotly_chart(fig_map, use_container_width=True, config=PLOTLY_CONFIG)
-        add_download(fig_map, "map.png", key="dl_map")
+        st.plotly_chart(fig_map, use_container_width=True, config={"displaylogo": False})
     else:
         st.info("No trips yet. Add your first trip in **Add / Manage Data → Add Trip**.")
 
@@ -612,10 +624,7 @@ with col2:
         fig_cost.update_traces(hovertemplate="<b>%{x}</b><br>USD: %{y:,}<extra></extra>")
         fig_cost.update_layout(xaxis_tickangle=-20)
         apply_common_layout(fig_cost, height=450)
-        st.plotly_chart(fig_cost, use_container_width=True, config=PLOTLY_CONFIG)
-        add_download(fig_cost, "total_spend.png", key="dl_total")
-    else:
-        st.info("Add some trips to see spending charts.")
+        st.plotly_chart(fig_cost, use_container_width=True, config={"displaylogo": False})
 
 st.markdown("---")
 
@@ -635,10 +644,7 @@ if len(t):
                               textposition="outside", cliponaxis=False)
     fig_cpd.update_traces(hovertemplate="<b>%{y}</b><br>USD/day: %{x:,.2f}<extra></extra>")
     apply_common_layout(fig_cpd, height=520)
-    st.plotly_chart(fig_cpd, use_container_width=True, config=PLOTLY_CONFIG)
-    add_download(fig_cpd, "cost_per_day.png", key="dl_cpd")
-else:
-    st.info("Add some trips to see the cost-per-day leaderboard.")
+    st.plotly_chart(fig_cpd, use_container_width=True, config={"displaylogo": False})
 
 st.markdown("---")
 
@@ -682,10 +688,7 @@ if {"trip_id","cuisine","rating_1_10"}.issubset(meals.columns) and len(meals) an
                                       textposition="outside", cliponaxis=False)
         fig_cuisine.update_layout(xaxis_tickangle=-30)
         apply_common_layout(fig_cuisine)
-        st.plotly_chart(fig_cuisine, use_container_width=True, config=PLOTLY_CONFIG)
-        add_download(fig_cuisine, "food_ratings_cuisines.png", key="dl_cuisine")
-else:
-    st.info("Add meals (and at least one trip) to see Food Ratings.")
+        st.plotly_chart(fig_cuisine, use_container_width=True, config={"displaylogo": False})
 
 st.markdown("---")
 
@@ -706,10 +709,7 @@ if "transportation_cost_usd" in t.columns and len(t) and t["transportation_cost_
     fig_transport.update_traces(hovertemplate="<b>%{x}</b><br>USD: %{y:,}<extra></extra>")
     fig_transport.update_layout(xaxis_tickangle=-20)
     apply_common_layout(fig_transport)
-    st.plotly_chart(fig_transport, use_container_width=True, config=PLOTLY_CONFIG)
-    add_download(fig_transport,"transportation.png",key="dl_transport")
-else:
-    st.info("Add trips with transportation costs to see this chart.")
+    st.plotly_chart(fig_transport, use_container_width=True, config={"displaylogo": False})
 
 st.subheader("🍜 Food spend per trip")
 if {"trip_id","cost_usd"}.issubset(meals.columns) and len(meals) and len(t):
@@ -734,10 +734,7 @@ if {"trip_id","cost_usd"}.issubset(meals.columns) and len(meals) and len(t):
     fig_food.update_traces(hovertemplate="<b>%{x}</b><br>USD: %{y:,}<extra></extra>")
     fig_food.update_layout(xaxis_tickangle=-20)
     apply_common_layout(fig_food)
-    st.plotly_chart(fig_food, use_container_width=True, config=PLOTLY_CONFIG)
-    add_download(fig_food,"food_spend.png",key="dl_food")
-else:
-    st.info("Add meals to see food totals per trip.")
+    st.plotly_chart(fig_food, use_container_width=True, config={"displaylogo": False})
 
 st.subheader("🏨 Accommodation spend per trip")
 if "accommodation_cost_usd" in t.columns and len(t) and t["accommodation_cost_usd"].notna().any():
@@ -753,10 +750,7 @@ if "accommodation_cost_usd" in t.columns and len(t) and t["accommodation_cost_us
     fig_accom.update_traces(hovertemplate="<b>%{x}</b><br>USD: %{y:,}<extra></extra>")
     fig_accom.update_layout(xaxis_tickangle=-20)
     apply_common_layout(fig_accom)
-    st.plotly_chart(fig_accom, use_container_width=True, config=PLOTLY_CONFIG)
-    add_download(fig_accom,"accommodation.png",key="dl_accom")
-else:
-    st.info("Add trips with accommodation costs to see this chart.")
+    st.plotly_chart(fig_accom, use_container_width=True, config={"displaylogo": False})
 
 # =========================
 #   FOOTER LINK
