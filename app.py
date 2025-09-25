@@ -1,15 +1,7 @@
-import base64
-from io import StringIO as _StringIO, BytesIO
 import streamlit as st
 import pandas as pd
 import plotly.express as px
-
-# Optional: server-side fetch for default background
-try:
-    import requests
-    REQUESTS_OK = True
-except Exception:
-    REQUESTS_OK = False
+from io import StringIO
 
 # =========================
 #   PAGE / THEME SETTINGS
@@ -18,102 +10,61 @@ st.set_page_config(page_title="Travel Dashboard", page_icon="🌍", layout="wide
 st.title("🌍 Travel Dashboard")
 st.caption("Add trips & meals in-app • Auto-fill map coordinates from City + Country • Explore maps & costs")
 
-# =========================
-#   BACKGROUND (DATA-URI)
-# =========================
-def to_data_uri(img_bytes: bytes, mime: str = "image/jpeg") -> str:
-    b64 = base64.b64encode(img_bytes).decode("ascii")
-    return f"data:{mime};base64,{b64}"
-
-def fetch_bytes(url: str, timeout: int = 10) -> bytes | None:
-    if not REQUESTS_OK:
-        return None
-    try:
-        r = requests.get(url, timeout=timeout)
-        if r.ok:
-            return r.content
-    except Exception:
-        pass
-    return None
-
-# Sidebar: allow custom background upload (embedded)
+# -------------------------
+#   SIDEBAR: optional background URL override (for quick testing)
+# -------------------------
 st.sidebar.header("🎨 Background (optional)")
-bg_file = st.sidebar.file_uploader("Upload a JPG/PNG for the background", type=["jpg", "jpeg", "png"])
+bg_url = st.sidebar.text_input(
+    "Background image URL",
+    value="https://upload.wikimedia.org/wikipedia/commons/2/21/Mercator_projection_SW.jpg",
+    help="Paste any JPG/PNG URL. Darker images work best."
+)
 
-# Dark, high-contrast world map (public-domain) as default
-DEFAULT_BG_URL = "https://upload.wikimedia.org/wikipedia/commons/2/21/Mercator_projection_SW.jpg"
-bg_bytes = None
-
-if bg_file is not None:
-    bg_bytes = bg_file.read()
-else:
-    bg_bytes = fetch_bytes(DEFAULT_BG_URL)
-
-bg_uri = to_data_uri(bg_bytes) if bg_bytes else None
-
-# Build CSS safely without f-strings (avoid tokenizer issues with braces)
-css = """
+# --- Robust global background on body::before ---
+# (Avoids Streamlit internals and works on Cloud reliably.)
+st.markdown(f"""
 <style>
 /* Make base layers transparent so our image shows */
-html, body, .stApp, [data-testid="stAppViewContainer"] { background: transparent !important; }
+html, body, .stApp {{
+  background: transparent !important;
+}}
 
-/* Full-viewport background via pseudo-element */
-[data-testid="stAppViewContainer"]::before {
+/* Full-viewport background via body::before */
+body::before {{
   content: "";
   position: fixed;
   inset: 0;
   z-index: -1;
-  BACKDROP_PLACEHOLDER
-}
+  background-image:
+    linear-gradient(rgba(0,0,0,0.12), rgba(0,0,0,0.12)),
+    url('{bg_url}');
+  background-size: cover;
+  background-position: center center;
+  background-repeat: no-repeat;
+  /* Tweak visibility: increase brightness for dark images; decrease for bright ones */
+  filter: brightness(0.85) contrast(1.15);
+  /* Ensure it's really behind everything */
+  pointer-events: none;
+}}
 
 /* Glass panels */
-.block-container {
+.block-container {{
   background: rgba(255, 255, 255, 0.90);
   backdrop-filter: blur(6px);
   -webkit-backdrop-filter: blur(6px);
   border-radius: 16px;
   padding: 1.2rem 1.4rem;
-}
-[data-testid="stSidebar"] > div:first-child {
+}}
+[data-testid="stSidebar"] > div:first-child {{
   background: rgba(255, 255, 255, 0.90);
   backdrop-filter: blur(6px);
   -webkit-backdrop-filter: blur(6px);
-}
-
+}}
 /* Headings + chart bg */
-h1, h2, h3, h4, h5, h6 { color: #0f172a; }
-.js-plotly-plot .plotly .bg { fill: rgba(255,255,255,0.0) !important; }
+h1, h2, h3, h4, h5, h6 {{ color: #0f172a; }}
+.js-plotly-plot .plotly .bg {{ fill: rgba(255,255,255,0.0) !important; }}
 </style>
-"""
-
-if bg_uri:
-    bg_rule = f"""
-  background:
-    linear-gradient(rgba(0,0,0,0.12), rgba(0,0,0,0.12)),
-    url('{bg_uri}') center center / cover no-repeat;
-  filter: brightness(0.8) contrast(1.12);
-"""
-else:
-    # Graceful fallback if image fetch failed
-    bg_rule = """
-  background:
-    radial-gradient(1200px 800px at 20% 10%, rgba(0,0,0,0.08), transparent 60%),
-    radial-gradient(1000px 700px at 80% 90%, rgba(0,0,0,0.08), transparent 60%),
-    linear-gradient(180deg, #e8eef4 0%, #f6f7fb 100%);
-"""
-
-st.markdown(css.replace("BACKDROP_PLACEHOLDER", bg_rule), unsafe_allow_html=True)
-
-# -------------------------
-#   KALEIDO DETECTION & CONFIG (optional PNG export)
-# -------------------------
-try:
-    import kaleido  # noqa: F401
-    KALEIDO_OK = True
-except Exception:
-    KALEIDO_OK = False
-
-PLOTLY_CONFIG = {"displaylogo": False, "modeBarButtonsToAdd": ["toImage"] if not KALEIDO_OK else []}
+""", unsafe_allow_html=True)
 
 # -------------------------
 #   OPTIONAL GEOCODER (geopy)
@@ -178,10 +129,7 @@ def year_series(dts):
     except Exception:
         return pd.to_datetime(dts, errors="coerce").dt.year
 
-def apply_common_layout(fig, height=420):
-    fig.update_layout(template="simple_white", height=height, margin=dict(t=30, r=10, l=10, b=10), coloraxis_showscale=False)
-    return fig
-
+from io import StringIO as _StringIO
 def df_to_csv_bytes(df: pd.DataFrame) -> bytes:
     buf = _StringIO()
     df.to_csv(buf, index=False)
@@ -224,6 +172,17 @@ def next_int(series):
     s = pd.to_numeric(series, errors="coerce").dropna().astype(int)
     return (s.max() + 1) if len(s) else 1
 
+# -------------------------
+#   KALEIDO (optional PNG export)
+# -------------------------
+try:
+    import kaleido  # noqa: F401
+    KALEIDO_OK = True
+except Exception:
+    KALEIDO_OK = False
+
+PLOTLY_CONFIG = {"displaylogo": False, "modeBarButtonsToAdd": ["toImage"] if not KALEIDO_OK else []}
+
 def fig_png_bytes(fig, scale=2):
     if not KALEIDO_OK:
         return None
@@ -236,6 +195,10 @@ def add_download(fig, filename, key):
     png = fig_png_bytes(fig)
     if png:
         st.download_button("⬇️ Download PNG", data=png, file_name=filename, mime="image/png", key=key)
+
+def apply_common_layout(fig, height=420):
+    fig.update_layout(template="simple_white", height=height, margin=dict(t=30, r=10, l=10, b=10), coloraxis_showscale=False)
+    return fig
 
 # -------------------------
 #   SIDEBAR: How to Use, Uploads, Templates, Clear
@@ -299,19 +262,7 @@ trips = st.session_state.trips_df.copy()
 meals = st.session_state.meals_df.copy()
 
 # -------------------------
-#   LIGHT SIDEBAR DIAGNOSTICS
-# -------------------------
-with st.sidebar.expander("Data check", expanded=False):
-    st.write("**trips.csv columns:**")
-    st.code(", ".join(map(str, trips.columns)))
-    st.write("Rows:", len(trips))
-    st.write("**meals.csv columns:**")
-    st.code(", ".join(map(str, meals.columns)))
-    st.write("Rows:", len(meals))
-    st.write("Geocoder:", "✅ enabled" if GEOCODER_OK else "⚠️ add `geopy>=2.4` to requirements.txt")
-
-# -------------------------
-#   BASIC SCHEMA (ensure required cols exist even if empty)
+#   BASIC SCHEMA & DERIVED
 # -------------------------
 required_trip_cols = {"trip_id","trip_name","start_date","end_date","primary_city","country","lat","lon","total_cost_usd"}
 missing = required_trip_cols - set(trips.columns)
@@ -322,9 +273,6 @@ if missing:
     st.session_state.trips_df = trips
     trips = st.session_state.trips_df
 
-# -------------------------
-#   DERIVED COLUMNS (safe on empty)
-# -------------------------
 for col in ["lat", "lon", "total_cost_usd", "transportation_cost_usd", "accommodation_cost_usd"]:
     if col in trips.columns:
         trips[col] = pd.to_numeric(trips[col], errors="coerce")
@@ -341,7 +289,7 @@ trips["cost_per_day"] = (
     trips["days"].replace({0: 1})
 ).round(2)
 
-# Compute food per trip from meals if present
+# Food per trip from meals (if present)
 if {"trip_id", "cost_usd"}.issubset(meals.columns) and len(meals):
     meals = meals.copy()
     meals["cost_usd"] = pd.to_numeric(meals["cost_usd"], errors="coerce").fillna(0)
@@ -356,7 +304,7 @@ else:
 trips["food_cost_usd"] = pd.to_numeric(trips["food_cost_usd"], errors="coerce").fillna(0).clip(lower=0)
 trips["year"] = year_series(pd.to_datetime(trips["start_date"], errors="coerce"))
 
-# Write back (post-derivations)
+# Write back post-derivations
 st.session_state.trips_df = trips
 st.session_state.meals_df = meals
 
