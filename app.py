@@ -2,105 +2,119 @@ import os
 import base64
 from io import StringIO as _StringIO
 import streamlit as st
+import streamlit.components.v1 as components
 import pandas as pd
 import plotly.express as px
+
+# Optional: requests for URL fetch fallback (not required)
+try:
+    import requests
+    REQUESTS_OK = True
+except Exception:
+    REQUESTS_OK = False
 
 # =========================
 #   PAGE / THEME SETTINGS
 # =========================
 st.set_page_config(page_title="Travel Dashboard", page_icon="🌍", layout="wide")
 st.title("🌍 Travel Dashboard")
-st.caption("Add trips & meals in-app • Auto-fill map coordinates from City + Country • Explore maps & costs")
+st.caption("Add trips & meals in-app • Auto-fill map coordinates • Explore maps & costs")
 
 # =========================
-#   LOCAL BACKGROUND (no external fetch, no data-URI)
+#   RELIABLE BACKGROUND (HTML component with embedded <img>)
 # =========================
-BG_PATH = "background.jpg"  # <-- place your world-map image in repo root with this name
+def inject_background(img_bytes: bytes | None):
+    """
+    Renders a fixed, full-screen background image behind the app via an <img>
+    inside an HTML component. Works even if CSS background-images are blocked.
+    Falls back to a soft gradient if no bytes provided.
+    """
+    if not img_bytes:
+        components.html("""
+        <div style="
+            position:fixed; inset:0; z-index:-1; pointer-events:none;
+            background:
+              radial-gradient(1200px 800px at 20% 10%, rgba(0,0,0,0.08), transparent 60%),
+              radial-gradient(1000px 700px at 80% 90%, rgba(0,0,0,0.08), transparent 60%),
+              linear-gradient(180deg, #e8eef4 0%, #f6f7fb 100%);
+        "></div>
+        """, height=0)
+        return
 
-def build_css_with_bg(local_exists: bool) -> str:
-    if local_exists:
-        # Use a fixed <img> layer behind the app; no external URL, survives CSP limits.
-        return """
+    b64 = base64.b64encode(img_bytes).decode("ascii")
+    data_uri = f"data:image/jpeg;base64,{b64}"
+    components.html(f"""
+    <div style="position:fixed; inset:0; z-index:-1; pointer-events:none; overflow:hidden;">
+      <img src="{data_uri}"
+           style="width:100%; height:100%; object-fit:cover; filter:brightness(0.80) contrast(1.15);" />
+    </div>
+    """, height=0)
+
+# Sidebar background options
+st.sidebar.header("🎨 Background (optional)")
+bg_file = st.sidebar.file_uploader("Upload background (JPG/PNG)", type=["jpg","jpeg","png"])
+bg_url = st.sidebar.text_input("…or paste image URL (optional)", value="")
+
+# Background selection priority: uploader → local file → URL → gradient
+bg_bytes = None
+if bg_file is not None:
+    bg_bytes = bg_file.read()
+elif os.path.exists("background.jpg"):
+    with open("background.jpg", "rb") as f:
+        bg_bytes = f.read()
+elif bg_url and REQUESTS_OK:
+    try:
+        r = requests.get(bg_url, timeout=10)
+        if r.ok:
+            bg_bytes = r.content
+    except Exception:
+        pass
+
+inject_background(bg_bytes)
+
+# Minimal "glass" styling for panels (kept simple & robust)
+st.markdown("""
 <style>
-/* Transparent base so background shows */
-html, body, .stApp { background: transparent !important; }
-
-/* Full-viewport background image layer */
-#_bg_layer_ {
-  position: fixed;
-  inset: 0;
-  z-index: -1;              /* behind all Streamlit content */
-  pointer-events: none;     /* clicks pass through */
-  overflow: hidden;
-}
-#_bg_layer_ img {
-  position: absolute;
-  width: 100%;
-  height: 100%;
-  object-fit: cover;        /* cover entire viewport */
-  filter: brightness(0.80) contrast(1.15);
-}
-
-/* Glass UI panels */
 .block-container {
-  background: rgba(255,255,255,0.90);
+  background: rgba(255, 255, 255, 0.90);
   backdrop-filter: blur(6px);
   -webkit-backdrop-filter: blur(6px);
   border-radius: 16px;
   padding: 1.2rem 1.4rem;
 }
 [data-testid="stSidebar"] > div:first-child {
-  background: rgba(255,255,255,0.90);
-  backdrop-filter: blur(6px);
-  -webkit-backdrop-filter: blur(6px);
-}
-
-/* Headings + charts */
-h1, h2, h3, h4, h5, h6 { color: #0f172a; }
-.js-plotly-plot .plotly .bg { fill: rgba(255,255,255,0.0) !important; }
-</style>
-<div id="_bg_layer_">
-  <img src="background.jpg" alt="world map background">
-</div>
-"""
-    else:
-        # Graceful fallback if no file is present
-        return """
-<style>
-html, body, .stApp { background: transparent !important; }
-#_bg_layer_ {
-  position: fixed; inset: 0; z-index:-1; pointer-events:none;
-  background:
-    radial-gradient(1200px 800px at 20% 10%, rgba(0,0,0,0.08), transparent 60%),
-    radial-gradient(1000px 700px at 80% 90%, rgba(0,0,0,0.08), transparent 60%),
-    linear-gradient(180deg, #e8eef4 0%, #f6f7fb 100%);
-}
-.block-container {
-  background: rgba(255,255,255,0.92);
-  backdrop-filter: blur(6px);
-  -webkit-backdrop-filter: blur(6px);
-  border-radius: 16px;
-  padding: 1.2rem 1.4rem;
-}
-[data-testid="stSidebar"] > div:first-child {
-  background: rgba(255,255,255,0.92);
+  background: rgba(255, 255, 255, 0.92);
   backdrop-filter: blur(6px);
   -webkit-backdrop-filter: blur(6px);
 }
 h1, h2, h3, h4, h5, h6 { color: #0f172a; }
 .js-plotly-plot .plotly .bg { fill: rgba(255,255,255,0.0) !important; }
 </style>
-<div id="_bg_layer_"></div>
-"""
+""", unsafe_allow_html=True)
 
-bg_exists = os.path.exists(BG_PATH)
-st.markdown(build_css_with_bg(bg_exists), unsafe_allow_html=True)
+# -------------------------
+#   KALEIDO (optional PNG export)
+# -------------------------
+try:
+    import kaleido  # noqa: F401
+    KALEIDO_OK = True
+except Exception:
+    KALEIDO_OK = False
 
-if not bg_exists:
-    st.warning(
-        "Background image not found. Add a **file named `background.jpg`** to the repo root "
-        "to enable the travel-themed background."
-    )
+PLOTLY_CONFIG = {"displaylogo": False, "modeBarButtonsToAdd": ["toImage"] if not KALEIDO_OK else []}
+
+def fig_png_bytes(fig, scale=2):
+    if not KALEIDO_OK:
+        return None
+    try:
+        return fig.to_image(format="png", scale=scale)
+    except Exception:
+        return None
+
+def add_download(fig, filename, key):
+    png = fig_png_bytes(fig)
+    if png:
+        st.download_button("⬇️ Download PNG", data=png, file_name=filename, mime="image/png", key=key)
 
 # -------------------------
 #   OPTIONAL GEOCODER (geopy)
@@ -212,30 +226,6 @@ def next_int(series):
     return (s.max() + 1) if len(s) else 1
 
 # -------------------------
-#   KALEIDO (optional PNG export)
-# -------------------------
-try:
-    import kaleido  # noqa: F401
-    KALEIDO_OK = True
-except Exception:
-    KALEIDO_OK = False
-
-PLOTLY_CONFIG = {"displaylogo": False, "modeBarButtonsToAdd": ["toImage"] if not KALEIDO_OK else []}
-
-def fig_png_bytes(fig, scale=2):
-    if not KALEIDO_OK:
-        return None
-    try:
-        return fig.to_image(format="png", scale=scale)
-    except Exception:
-        return None
-
-def add_download(fig, filename, key):
-    png = fig_png_bytes(fig)
-    if png:
-        st.download_button("⬇️ Download PNG", data=png, file_name=filename, mime="image/png", key=key)
-
-# -------------------------
 #   SIDEBAR: How to Use, Uploads, Templates, Clear
 # -------------------------
 with st.sidebar.expander("ℹ️ How to use this app"):
@@ -297,7 +287,7 @@ trips = st.session_state.trips_df.copy()
 meals = st.session_state.meals_df.copy()
 
 # -------------------------
-#   BASIC SCHEMA & DERIVED
+#   BASIC SCHEMA (ensure required cols)
 # -------------------------
 required_trip_cols = {"trip_id","trip_name","start_date","end_date","primary_city","country","lat","lon","total_cost_usd"}
 missing = required_trip_cols - set(trips.columns)
@@ -308,6 +298,9 @@ if missing:
     st.session_state.trips_df = trips
     trips = st.session_state.trips_df
 
+# -------------------------
+#   DERIVED COLUMNS (safe on empty)
+# -------------------------
 for col in ["lat", "lon", "total_cost_usd", "transportation_cost_usd", "accommodation_cost_usd"]:
     if col in trips.columns:
         trips[col] = pd.to_numeric(trips[col], errors="coerce")
@@ -324,7 +317,7 @@ trips["cost_per_day"] = (
     trips["days"].replace({0: 1})
 ).round(2)
 
-# Food per trip from meals (if present)
+# Compute food per trip from meals if present
 if {"trip_id", "cost_usd"}.issubset(meals.columns) and len(meals):
     meals = meals.copy()
     meals["cost_usd"] = pd.to_numeric(meals["cost_usd"], errors="coerce").fillna(0)
@@ -339,7 +332,7 @@ else:
 trips["food_cost_usd"] = pd.to_numeric(trips["food_cost_usd"], errors="coerce").fillna(0).clip(lower=0)
 trips["year"] = year_series(pd.to_datetime(trips["start_date"], errors="coerce"))
 
-# Write back post-derivations
+# Write back (post-derivations)
 st.session_state.trips_df = trips
 st.session_state.meals_df = meals
 
