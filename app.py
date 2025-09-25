@@ -111,6 +111,38 @@ def next_int(series):
     s = pd.to_numeric(series, errors="coerce").dropna().astype(int)
     return (s.max() + 1) if len(s) else 1
 
+# ---- Template CSV creators (headers + one example row)
+def template_trips_bytes() -> bytes:
+    df = pd.DataFrame([{
+        "trip_id": 1,
+        "trip_name": "Tokyo Spring Break",
+        "start_date": "2023-03-15",
+        "end_date": "2023-03-22",
+        "primary_city": "Tokyo",
+        "country": "Japan",
+        "lat": 35.6895,
+        "lon": 139.6917,
+        "total_cost_usd": 2000,
+        "transportation_cost_usd": 600,
+        "accommodation_cost_usd": 800,
+        "notes": "Cherry blossoms",
+    }])
+    return to_csv_download_bytes(df)
+
+def template_meals_bytes() -> bytes:
+    df = pd.DataFrame([{
+        "meal_id": 1,
+        "trip_id": 1,
+        "date": "2023-03-16",
+        "cuisine": "Japanese",
+        "restaurant": "Ichiran",
+        "dish_name": "Tonkotsu Ramen",
+        "rating_1_10": 9,
+        "cost_usd": 12,
+        "notes": "Late-night bowl",
+    }])
+    return to_csv_download_bytes(df)
+
 # -------------------------
 #   LOAD / REPLACE DATA (EMPTY BY DEFAULT)
 # -------------------------
@@ -127,6 +159,16 @@ with col_clear2:
         st.session_state.meals_df = empty_meals_df()
         st.sidebar.success("Meals cleared.")
 
+# NEW: Download Templates
+st.sidebar.header("Download Templates")
+st.sidebar.download_button(
+    "Download trips.csv template", data=template_trips_bytes(), file_name="trips.csv", mime="text/csv", key="tmpl_trips"
+)
+st.sidebar.download_button(
+    "Download meals.csv template", data=template_meals_bytes(), file_name="meals.csv", mime="text/csv", key="tmpl_meals"
+)
+
+# Uploaders
 up_trips = st.sidebar.file_uploader("trips.csv", type=["csv"], key="uploader_trips")
 up_meals = st.sidebar.file_uploader("meals.csv", type=["csv"], key="uploader_meals")
 
@@ -136,12 +178,11 @@ if "trips_df" not in st.session_state:
 if "meals_df" not in st.session_state:
     st.session_state.meals_df = empty_meals_df()
 
-# 🔁 NEW: Replace data immediately when files are uploaded
+# Replace data immediately when files are uploaded
 if up_trips is not None:
     try:
         trips_loaded = pd.read_csv(up_trips, parse_dates=["start_date", "end_date"])
     except Exception:
-        # fallback if date columns are missing or different
         trips_loaded = pd.read_csv(up_trips)
         for c in ["start_date", "end_date"]:
             if c in trips_loaded.columns:
