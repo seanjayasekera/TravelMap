@@ -1,21 +1,2 @@
-meal_id,trip_id,date,cuisine,restaurant,dish_name,rating_1_10,cost_usd,notes
-1,1,2023-03-16,Japanese,Ichiran,Tonkotsu Ramen,9,12,Late-night bowl
-2,1,2023-03-18,Japanese,Sukiyabashi Jiro,Sushi,10,120,Bucket-list sushi
-3,2,2023-07-06,French,Le Meurice,Duck à l’orange,8,45,Classic French dish
-4,2,2023-07-08,French,Ladurée,Macarons,9,15,Famous dessert
-5,3,2022-12-11,American,Katz's Deli,Pastrami Sandwich,9,20,Huge sandwich
-6,3,2022-12-14,Italian-American,Carbone,Spaghetti,8,30,Trendy spot
-7,4,2024-01-21,Australian,Quay,Lamb,7,50,Harbour view
-8,4,2024-01-25,Seafood,Sydney Fish Market,Grilled Prawns,9,25,Fresh seafood
-9,5,2023-05-11,Italian,Roscioli,Carbonara,10,18,Best pasta ever
-10,5,2023-05-15,Italian,Giolitti,Gelato,9,8,Delicious treat
-11,6,2023-11-02,Thai,Jay Fai,Drunken Noodles,10,25,Michelin street food
-12,6,2023-11-05,Thai,Thip Samai,Pad Thai,9,10,Famous pad thai
-13,7,2024-02-16,Egyptian,Abou Tarek,Koshari,8,6,Local comfort food
-14,7,2024-02-20,Middle Eastern,Zooba,Falafel,9,5,Tasty and cheap
-15,8,2023-10-06,British,Dishoom,Chicken Tikka,8,18,Indian-British fusion
-16,8,2023-10-10,British,The Wolseley,English Breakfast,7,22,Classic
-17,9,2024-02-21,Brazilian,Churrascaria Palace,Picanha,9,40,Traditional BBQ
-18,9,2024-02-25,Brazilian,Confeitaria Colombo,Brigadeiro,8,5,Famous sweet
-19,10,2023-09-02,Canadian,St. Lawrence,Poutine,8,12,Classic Canadian dish
-20,10,2023-09-05,Canadian,Alo,Lobster Roll,9,35,Upscale seafood
+meal_id,trip_id,date,cuisine,restaurant,dish_name,rating_1_10,cost_usd
+1,1,2023-03-16,Japanese,Ichiran,Tonkotsu Ramen,9,12

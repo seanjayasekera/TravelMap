@@ -1,11 +1,2 @@
-trip_id,trip_name,start_date,end_date,primary_city,country,lat,lon,total_cost_usd,transportation_cost_usd,accommodation_cost_usd,notes
-1,Tokyo Spring Break,2023-03-15,2023-03-22,Tokyo,Japan,35.6895,139.6917,2000,600,800,Cherry blossoms
-2,Paris Summer,2023-07-05,2023-07-12,Paris,France,48.8566,2.3522,2500,700,1000,Eiffel Tower
-3,New York Winter,2022-12-10,2022-12-17,New York,USA,40.7128,-74.006,1800,500,900,Broadway shows
-4,Sydney Adventure,2024-01-20,2024-01-30,Sydney,Australia,-33.8688,151.2093,3000,900,1200,Opera House
-5,Rome Getaway,2023-05-10,2023-05-17,Rome,Italy,41.9028,12.4964,2200,650,850,Colosseum
-6,Bangkok Exploration,2023-11-01,2023-11-08,Bangkok,Thailand,13.7563,100.5018,1600,400,600,Street food tour
-7,Cairo Discovery,2024-02-15,2024-02-22,Cairo,Egypt,30.0444,31.2357,2100,550,700,Pyramids of Giza
-8,London Autumn,2023-10-05,2023-10-12,London,UK,51.5074,-0.1278,2400,750,950,West End musicals
-9,Rio Carnival,2024-02-20,2024-02-27,Rio de Janeiro,Brazil,-22.9068,-43.1729,2800,800,1000,Carnival Parade
-10,Toronto City Break,2023-09-01,2023-09-07,Toronto,Canada,43.6532,-79.3832,1900,500,700,CN Tower
+trip_id,trip_name,start_date,end_date,primary_city,country,lat,lon,total_cost_usd,transportation_cost_usd,accommodation_cost_usd
+1,Tokyo Spring Break,2023-03-15,2023-03-22,Tokyo,Japan,35.6895,139.6917,2000,600,800
