@@ -144,8 +144,17 @@ def add_download(fig, filename, key):
         st.download_button("⬇️ Download PNG", data=png, file_name=filename, mime="image/png", key=key)
 
 # -------------------------
-#   SIDEBAR: Uploads, Templates, Clear
+#   SIDEBAR: How to Use, Uploads, Templates, Clear
 # -------------------------
+with st.sidebar.expander("ℹ️ How to use this app"):
+    st.write("""
+    1. Download the **sample CSVs** below.
+    2. Open them in Excel or Google Sheets.
+    3. Replace the example row with **your own trip and meal data**.
+    4. Upload the updated files in the **Upload your data** section.
+    5. Or, skip CSVs and use the **Add Trip / Add Meal** tabs to enter data directly.
+    """)
+
 st.sidebar.header("Upload your data (optional)")
 up_trips = st.sidebar.file_uploader("Upload trips.csv", type=["csv"], key="uploader_trips")
 up_meals = st.sidebar.file_uploader("Upload meals.csv", type=["csv"], key="uploader_meals")
