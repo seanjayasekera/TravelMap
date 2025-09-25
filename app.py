@@ -28,19 +28,21 @@ html, body, .stApp,
 """, unsafe_allow_html=True)
 
 # =========================
-#   RELIABLE BACKGROUND (NO IFRAMES)
-#   -> injects a fixed DIV + IMG directly into the page via st.markdown
+#   BACKGROUND WITH DARK VIGNETTE (NO IFRAMES)
 # =========================
 def inject_background_markdown(img_bytes: bytes | None):
+    """
+    Fixed full-screen background with a dark vignette overlay for readability.
+    Uses st.markdown (no iframes) so the image reliably sits behind the app.
+    """
     if not img_bytes:
-        # Gradient fallback
+        # Fallback: soft gradient + dark vignette
         st.markdown("""
 <div id="app-bg"
      style="
-       position:fixed; inset:0; z-index:0; pointer-events:none;
+       position:fixed; inset:0; z-index:0; pointer-events:none; overflow:hidden;
        background:
-         radial-gradient(1200px 800px at 20% 10%, rgba(0,0,0,0.08), transparent 60%),
-         radial-gradient(1000px 700px at 80% 90%, rgba(0,0,0,0.08), transparent 60%),
+         radial-gradient(circle at center, rgba(0,0,0,0.0) 60%, rgba(0,0,0,0.45) 100%),
          linear-gradient(180deg, #e8eef4 0%, #f6f7fb 100%);
      ">
 </div>
@@ -52,7 +54,11 @@ def inject_background_markdown(img_bytes: bytes | None):
 <div id="app-bg"
      style="position:fixed; inset:0; z-index:0; pointer-events:none; overflow:hidden;">
   <img src="data:image/jpeg;base64,{b64}"
-       style="width:100%; height:100%; object-fit:cover; filter:brightness(0.80) contrast(1.15);" />
+       style="width:100%; height:100%; object-fit:cover; filter:brightness(0.9) contrast(1.05);" />
+  <div style="
+       position:absolute; inset:0;
+       background: radial-gradient(circle at center, rgba(0,0,0,0.0) 65%, rgba(0,0,0,0.55) 100%);
+  "></div>
 </div>
 """, unsafe_allow_html=True)
 
