@@ -262,7 +262,7 @@ def next_int(series):
     return (s.max() + 1) if len(s) else 1
 
 # =========================
-#   SIDEBAR: How to Use, Uploads, Templates, Clear
+#   SIDEBAR: How to Use, Uploads, Templates, Currency, Clear
 # =========================
 with st.sidebar.expander("ℹ️ How to use this app"):
     st.write("""
@@ -281,6 +281,68 @@ st.sidebar.header("Download Templates")
 st.sidebar.download_button("Download trips.csv template", data=template_trips_bytes(), file_name="trips.csv", mime="text/csv", key="tmpl_trips")
 st.sidebar.download_button("Download meals.csv template", data=template_meals_bytes(), file_name="meals.csv", mime="text/csv", key="tmpl_meals")
 
+# ---- Currency selection & custom rates ----
+st.sidebar.header("Currency")
+CURRENCY_SYMBOLS = {
+    "USD": "$", "EUR": "€", "GBP": "£", "CAD": "$", "AUD": "$",
+    "JPY": "¥", "INR": "₹", "SGD": "$"
+}
+# Default 'per USD' conversion (1 USD -> per_usd units of target currency)
+DEFAULT_RATES_PER_USD = {
+    "USD": 1.00,
+    "EUR": 0.92,
+    "GBP": 0.78,
+    "CAD": 1.35,
+    "AUD": 1.50,
+    "JPY": 155.00,
+    "INR": 84.00,
+    "SGD": 1.34,
+}
+selected_currency = st.sidebar.selectbox("Display currency", list(CURRENCY_SYMBOLS.keys()), index=0)
+
+# Optional: users can upload a CSV to override default rates
+st.sidebar.caption("Optional: Upload a CSV with columns `currency,per_usd` to override rates.")
+rates_file = st.sidebar.file_uploader("Upload exchange_rates.csv", type=["csv"], key="rates_uploader")
+
+rates = DEFAULT_RATES_PER_USD.copy()
+if rates_file is not None:
+    try:
+        _rf = pd.read_csv(rates_file)
+        if {"currency", "per_usd"}.issubset(_rf.columns):
+            for _, row in _rf.iterrows():
+                code = str(row["currency"]).strip().upper()
+                try:
+                    per_usd = float(row["per_usd"])
+                    if per_usd > 0:
+                        rates[code] = per_usd
+                except Exception:
+                    pass
+            st.sidebar.success("Exchange rates loaded.")
+        else:
+            st.sidebar.error("CSV must have columns: currency, per_usd")
+    except Exception:
+        st.sidebar.error("Could not read rates CSV. Please check the file.")
+
+# Helpers for currency formatting / conversion
+def currency_symbol(code: str) -> str:
+    return CURRENCY_SYMBOLS.get(code, "")
+
+def convert_usd(amount_usd: float, code: str) -> float:
+    per_usd = rates.get(code, 1.0)
+    try:
+        return float(amount_usd) * float(per_usd)
+    except Exception:
+        return 0.0
+
+def fmt_money(amount_usd: float, code: str) -> str:
+    val = convert_usd(amount_usd, code)
+    sym = currency_symbol(code)
+    # If symbol is $, show with code when not USD
+    prefix = f"{sym}" if code in ("USD","CAD","AUD","SGD") else sym
+    suffix_code = "" if code == "USD" else f" {code}"
+    return f"{prefix}{val:,.2f}{suffix_code}"
+
+# Clear buttons
 col_clear1, col_clear2 = st.sidebar.columns(2)
 with col_clear1:
     if st.button("Clear trips", use_container_width=True):
@@ -483,7 +545,7 @@ with tab_add_meal:
                         "cuisine": cuisine,
                         "restaurant": restaurant,
                         "dish_name": dish_name,
-                        "cost_usd": float(cost_usd),
+                        "cost_usd": float(cost_usd),   # stored in USD
                         "rating_1_10": int(rating_1_10),
                         "date": pd.to_datetime(date),
                     }
@@ -549,20 +611,43 @@ trips["food_cost_usd"] = pd.to_numeric(trips["food_cost_usd"], errors="coerce").
 trips["year"] = year_series(pd.to_datetime(trips["start_date"], errors="coerce"))
 
 # =========================
+#   CURRENCY-VIEW TRANSFORMS (display only)
+# =========================
+display_currency = selected_currency
+sym = currency_symbol(display_currency)
+
+# Create a view with converted numbers for plotting/metrics
+t = trips.copy()
+if len(t):
+    t["total_cost_disp"] = t["total_cost_usd"].apply(lambda v: convert_usd(v, display_currency))
+    t["transportation_cost_disp"] = pd.to_numeric(t.get("transportation_cost_usd", 0), errors="coerce").fillna(0).apply(lambda v: convert_usd(v, display_currency))
+    t["accommodation_cost_disp"] = pd.to_numeric(t.get("accommodation_cost_usd", 0), errors="coerce").fillna(0).apply(lambda v: convert_usd(v, display_currency))
+    t["food_cost_disp"] = pd.to_numeric(t.get("food_cost_usd", 0), errors="coerce").fillna(0).apply(lambda v: convert_usd(v, display_currency))
+    # cost/day in displayed currency = (usd/day) * per_usd
+    t["cost_per_day_disp"] = t["cost_per_day"].apply(lambda v: convert_usd(v, display_currency))
+    t["year"] = year_series(pd.to_datetime(t["start_date"], errors="coerce"))
+
+# Meals view (for table & aggregation)
+meals_disp = meals.copy()
+if len(meals_disp):
+    meals_disp["cost_disp"] = pd.to_numeric(meals_disp["cost_usd"], errors="coerce").fillna(0).apply(lambda v: convert_usd(v, display_currency))
+
+# =========================
 #   FILTERS & METRICS
 # =========================
+st.markdown("## ➕ Add / Manage Data")  # keep anchor visible as users scroll back after sidebar actions
 st.markdown("---")
 st.sidebar.header("Filters")
-countries = sorted(trips["country"].dropna().unique().tolist())
-years = sorted(trips["year"].dropna().unique().tolist())
+countries = sorted(t["country"].dropna().unique().tolist()) if len(t) else []
+years = sorted(t["year"].dropna().unique().tolist()) if len(t) else []
 sel_countries = st.sidebar.multiselect("Country", countries, default=countries)
 sel_years = st.sidebar.multiselect("Year", years, default=years)
 search = st.sidebar.text_input("Search trips/cities", placeholder="e.g., Tokyo")
 show_labels = st.sidebar.checkbox("Show values on bars", value=True)
 sort_by = st.sidebar.selectbox("Sort bars by", ["Start date", "Trip name", "Value"], index=0)
 
-mask = trips["country"].isin(sel_countries) & trips["year"].isin(sel_years) if len(trips) else pd.Series([], dtype=bool)
-t = trips.loc[mask].copy() if len(trips) else trips.copy()
+mask = t["country"].isin(sel_countries) & t["year"].isin(sel_years) if len(t) else pd.Series([], dtype=bool)
+t = t.loc[mask].copy() if len(t) else t
 if len(t) and search:
     s = search.strip()
     search_mask = pd.Series(False, index=t.index)
@@ -570,12 +655,16 @@ if len(t) and search:
         search_mask |= t[c].astype(str).str.contains(s, case=False, na=False)
     t = t.loc[search_mask].copy()
 
-# Metrics
+# Metrics (display currency)
 c1, c2, c3, c4 = st.columns(4)
 with c1: st.metric("Trips", f"{len(t)}")
 with c2: st.metric("Countries", f"{t['country'].nunique() if len(t) else 0}")
-with c3: st.metric("Total Spend (USD)", f"${int(pd.to_numeric(t.get('total_cost_usd', pd.Series(dtype='float')), errors='coerce').fillna(0).sum()):,}")
-with c4: st.metric("Median Cost/Day", f"${(t['cost_per_day'].median() if len(t) else 0):,.2f}")
+with c3:
+    total_spend_disp = t["total_cost_disp"].sum() if len(t) else 0
+    st.metric(f"Total Spend ({display_currency})", f"{sym}{total_spend_disp:,.0f}")
+with c4:
+    med_cpd = t["cost_per_day_disp"].median() if len(t) else 0
+    st.metric(f"Median Cost/Day ({display_currency})", f"{sym}{med_cpd:,.2f}")
 
 st.markdown("---")
 
@@ -589,39 +678,45 @@ with col1:
     if len(t):
         fig_map = px.scatter_geo(
             t, lat="lat", lon="lon", hover_name="trip_name",
-            hover_data={"country": True,"total_cost_usd": True,"days": True,"lat": False,"lon": False},
+            hover_data={
+                "country": True,
+                "total_cost_disp": True,
+                "days": True,
+                "lat": False, "lon": False
+            },
             projection="natural earth",
         )
         fig_map.update_traces(marker=dict(color="red", size=9, line=dict(width=1, color="black")))
         fig_map.update_geos(showcountries=True, showframe=False, landcolor="lightgray", oceancolor="lightblue", showocean=True)
         fig_map.update_layout(margin=dict(l=0,r=0,t=0,b=0), height=450, template="simple_white")
+        fig_map.update_traces(hovertemplate=f"<b>%{{hovertext}}</b><br>{display_currency}: %{{customdata[0]:,.0f}}<extra></extra>")
         st.plotly_chart(fig_map, use_container_width=True, config=PLOTLY_CONFIG)
-        add_download(fig_map, "map.png", key="dl_map")
+        add_download(fig_map, f"map_{display_currency}.png", key="dl_map")
     else:
         st.info("No trips yet. Add your first trip in **Add / Manage Data → Add Trip**.")
 
 with col2:
-    st.subheader("💵 Total spend per trip")
+    st.subheader(f"💵 Total spend per trip ({display_currency})")
     if len(t):
         if sort_by == "Start date":
             df_total = t.sort_values("start_date")
         elif sort_by == "Trip name":
             df_total = t.sort_values("trip_name")
         else:
-            df_total = t.sort_values("total_cost_usd", ascending=False)
+            df_total = t.sort_values("total_cost_disp", ascending=False)
         fig_cost = px.bar(
-            df_total, x="trip_name", y="total_cost_usd",
-            labels={"trip_name": "Trip", "total_cost_usd": "USD"},
-            color="total_cost_usd", color_continuous_scale="Tealgrn",
+            df_total, x="trip_name", y="total_cost_disp",
+            labels={"trip_name": "Trip", "total_cost_disp": display_currency},
+            color="total_cost_disp", color_continuous_scale="Tealgrn",
         )
         if show_labels:
-            fig_cost.update_traces(text=df_total["total_cost_usd"].map(lambda v: f"${int(v):,}"),
+            fig_cost.update_traces(text=df_total["total_cost_disp"].map(lambda v: f"{sym}{v:,.0f}"),
                                    textposition="outside", cliponaxis=False)
-        fig_cost.update_traces(hovertemplate="<b>%{x}</b><br>USD: %{y:,}<extra></extra>")
+        fig_cost.update_traces(hovertemplate=f"<b>%{{x}}</b><br>{display_currency}: %{{y:,.0f}}<extra></extra>")
         fig_cost.update_layout(xaxis_tickangle=-20)
         apply_common_layout(fig_cost, height=450)
         st.plotly_chart(fig_cost, use_container_width=True, config=PLOTLY_CONFIG)
-        add_download(fig_cost, "total_spend.png", key="dl_total")
+        add_download(fig_cost, f"total_spend_{display_currency}.png", key="dl_total")
     else:
         st.info("Add some trips to see spending charts.")
 
@@ -630,21 +725,21 @@ st.markdown("---")
 # =========================
 #   COST PER DAY
 # =========================
-st.subheader("🏆 Cost per day leaderboard")
+st.subheader(f"🏆 Cost per day leaderboard ({display_currency})")
 if len(t):
-    df_cpd = t.sort_values("cost_per_day", ascending=True).copy()
+    df_cpd = t.sort_values("cost_per_day_disp", ascending=True).copy()
     fig_cpd = px.bar(
-        df_cpd, x="cost_per_day", y="trip_name", orientation="h",
-        labels={"cost_per_day": "USD per day","trip_name": "Trip"},
-        color="cost_per_day", color_continuous_scale="Blugrn",
+        df_cpd, x="cost_per_day_disp", y="trip_name", orientation="h",
+        labels={"cost_per_day_disp": f"{display_currency} per day","trip_name": "Trip"},
+        color="cost_per_day_disp", color_continuous_scale="Blugrn",
     )
     if show_labels:
-        fig_cpd.update_traces(text=df_cpd["cost_per_day"].map(lambda v: f"${v:,.2f}"),
+        fig_cpd.update_traces(text=df_cpd["cost_per_day_disp"].map(lambda v: f"{sym}{v:,.2f}"),
                               textposition="outside", cliponaxis=False)
-    fig_cpd.update_traces(hovertemplate="<b>%{y}</b><br>USD/day: %{x:,.2f}<extra></extra>")
+    fig_cpd.update_traces(hovertemplate=f"<b>%{{y}}</b><br>{display_currency}/day: %{{x:,.2f}}<extra></extra>")
     apply_common_layout(fig_cpd, height=520)
     st.plotly_chart(fig_cpd, use_container_width=True, config=PLOTLY_CONFIG)
-    add_download(fig_cpd, "cost_per_day.png", key="dl_cpd")
+    add_download(fig_cpd, f"cost_per_day_{display_currency}.png", key="dl_cpd")
 else:
     st.info("Add some trips to see the cost-per-day leaderboard.")
 
@@ -655,8 +750,7 @@ st.markdown("---")
 # =========================
 st.subheader("🍴 Food Ratings")
 if {"trip_id","cuisine","rating_1_10"}.issubset(meals.columns) and len(meals) and len(t):
-    meals_r = meals.copy()
-    meals_r["rating_1_10"] = pd.to_numeric(meals_r["rating_1_10"], errors="coerce")
+    meals_r = meals_disp.copy()
     if "date" in meals_r.columns:
         meals_r["date_str"] = pd.to_datetime(meals_r["date"], errors="coerce").dt.strftime("%Y-%m-%d")
     meals_r = meals_r[meals_r["trip_id"].isin(t["trip_id"])]
@@ -665,10 +759,10 @@ if {"trip_id","cuisine","rating_1_10"}.issubset(meals.columns) and len(meals) an
     if meals_r.empty:
         st.info("No meals match the current filters.")
     else:
-        display_cols = [c for c in ["meal_id","trip_name","date_str","cuisine","restaurant","dish_name","rating_1_10","cost_usd"] if c in meals_r.columns]
-        sort_col = "meal_id" if "meal_id" in meals_r.columns else "trip_name"
-        table_df = meals_r[display_cols].sort_values(sort_col, ascending=True).reset_index(drop=True)
-        table_df = table_df.rename(columns={"date_str": "date"})
+        # Display table in selected currency
+        display_cols = [c for c in ["meal_id","trip_name","date_str","cuisine","restaurant","dish_name","rating_1_10","cost_disp"] if c in meals_r.columns]
+        table_df = meals_r[display_cols].sort_values("meal_id" if "meal_id" in meals_r.columns else "trip_name").reset_index(drop=True)
+        table_df = table_df.rename(columns={"date_str": "date", "cost_disp": f"cost ({display_currency})"})
         try:
             st.dataframe(table_df, use_container_width=True, hide_index=True)
         except TypeError:
@@ -700,69 +794,60 @@ st.markdown("---")
 # =========================
 #   TRANSPORT / FOOD / ACCOM
 # =========================
-st.subheader("🚗 Transportation spend per trip")
-if "transportation_cost_usd" in t.columns and len(t) and t["transportation_cost_usd"].notna().any():
+st.subheader(f"🚗 Transportation spend per trip ({display_currency})")
+if "transportation_cost_disp" in t.columns and len(t) and t["transportation_cost_disp"].notna().any():
     df_tr = t.sort_values("start_date")
     fig_transport = px.bar(
-        df_tr, x="trip_name", y="transportation_cost_usd",
-        labels={"trip_name":"Trip","transportation_cost_usd":"USD"},
-        color="transportation_cost_usd", color_continuous_scale="Tealgrn",
+        df_tr, x="trip_name", y="transportation_cost_disp",
+        labels={"trip_name":"Trip","transportation_cost_disp":display_currency},
+        color="transportation_cost_disp", color_continuous_scale="Tealgrn",
     )
     if show_labels:
-        fig_transport.update_traces(text=df_tr["transportation_cost_usd"].fillna(0).map(lambda v: f"${int(v):,}"),
+        fig_transport.update_traces(text=df_tr["transportation_cost_disp"].fillna(0).map(lambda v: f"{sym}{v:,.0f}"),
                                     textposition="outside", cliponaxis=False)
-    fig_transport.update_traces(hovertemplate="<b>%{x}</b><br>USD: %{y:,}<extra></extra>")
+    fig_transport.update_traces(hovertemplate=f"<b>%{{x}}</b><br>{display_currency}: %{{y:,.0f}}<extra></extra>")
     fig_transport.update_layout(xaxis_tickangle=-20)
     apply_common_layout(fig_transport)
     st.plotly_chart(fig_transport, use_container_width=True, config=PLOTLY_CONFIG)
-    add_download(fig_transport,"transportation.png",key="dl_transport")
+    add_download(fig_transport, f"transportation_{display_currency}.png", key="dl_transport")
 else:
     st.info("Add trips with transportation costs to see this chart.")
 
-st.subheader("🍜 Food spend per trip")
-if {"trip_id","cost_usd"}.issubset(meals.columns) and len(meals) and len(t):
-    meals_f = meals.copy()
-    meals_f["cost_usd"] = pd.to_numeric(meals_f["cost_usd"], errors="coerce").fillna(0)
-    meals_f["trip_id"] = pd.to_numeric(meals_f["trip_id"], errors="coerce").astype("Int64")
-    food_by_trip_f = meals_f.groupby("trip_id", dropna=False)["cost_usd"].sum().rename("food_cost_usd")
-
-    tf = t.drop(columns=[c for c in t.columns if c.startswith("food_cost_usd")], errors="ignore")
-    tf = tf.merge(food_by_trip_f, how="left", left_on="trip_id", right_index=True)
-    tf["food_cost_usd"] = pd.to_numeric(tf["food_cost_usd"], errors="coerce").fillna(0)
-
-    df_food = tf.sort_values("start_date")
+st.subheader(f"🍜 Food spend per trip ({display_currency})")
+if "food_cost_disp" in t.columns and len(t):
+    df_food = t.sort_values("start_date")
     fig_food = px.bar(
-        df_food, x="trip_name", y="food_cost_usd",
-        labels={"trip_name":"Trip","food_cost_usd":"USD"},
-        color="food_cost_usd", color_continuous_scale="Viridis",
+        df_food, x="trip_name", y="food_cost_disp",
+        labels={"trip_name":"Trip","food_cost_disp":display_currency},
+        color="food_cost_disp", color_continuous_scale="Viridis",
     )
     if show_labels:
-        fig_food.update_traces(text=df_food["food_cost_usd"].map(lambda v: f"${int(v):,}"),
+        fig_food.update_traces(text=df_food["food_cost_disp"].map(lambda v: f"{sym}{v:,.0f}"),
                                textposition="outside", cliponaxis=False)
-    fig_food.update_traces(hovertemplate="<b>%{x}</b><br>USD: %{y:,}<extra></extra>")
+    fig_food.update_traces(hovertemplate=f"<b>%{{x}}</b><br>{display_currency}: %{{y:,.0f}}<extra></extra>")
     fig_food.update_layout(xaxis_tickangle=-20)
     apply_common_layout(fig_food)
     st.plotly_chart(fig_food, use_container_width=True, config=PLOTLY_CONFIG)
-    add_download(fig_food,"food_spend.png",key="dl_food")
+    add_download(fig_food, f"food_spend_{display_currency}.png", key="dl_food")
 else:
     st.info("Add meals to see food totals per trip.")
 
-st.subheader("🏨 Accommodation spend per trip")
-if "accommodation_cost_usd" in t.columns and len(t) and t["accommodation_cost_usd"].notna().any():
+st.subheader(f"🏨 Accommodation spend per trip ({display_currency})")
+if "accommodation_cost_disp" in t.columns and len(t) and t["accommodation_cost_disp"].notna().any():
     df_ac = t.sort_values("start_date")
     fig_accom = px.bar(
-        df_ac, x="trip_name", y="accommodation_cost_usd",
-        labels={"trip_name":"Trip","accommodation_cost_usd":"USD"},
-        color="accommodation_cost_usd", color_continuous_scale="Purples",
+        df_ac, x="trip_name", y="accommodation_cost_disp",
+        labels={"trip_name":"Trip","accommodation_cost_disp":display_currency},
+        color="accommodation_cost_disp", color_continuous_scale="Purples",
     )
     if show_labels:
-        fig_accom.update_traces(text=df_ac["accommodation_cost_usd"].fillna(0).map(lambda v: f"${int(v):,}"),
+        fig_accom.update_traces(text=df_ac["accommodation_cost_disp"].fillna(0).map(lambda v: f"{sym}{v:,.0f}"),
                                 textposition="outside", cliponaxis=False)
-    fig_accom.update_traces(hovertemplate="<b>%{x}</b><br>USD: %{y:,}<extra></extra>")
+    fig_accom.update_traces(hovertemplate=f"<b>%{{x}}</b><br>{display_currency}: %{{y:,.0f}}<extra></extra>")
     fig_accom.update_layout(xaxis_tickangle=-20)
     apply_common_layout(fig_accom)
     st.plotly_chart(fig_accom, use_container_width=True, config=PLOTLY_CONFIG)
-    add_download(fig_accom,"accommodation.png",key="dl_accom")
+    add_download(fig_accom, f"accommodation_{display_currency}.png", key="dl_accom")
 else:
     st.info("Add trips with accommodation costs to see this chart.")
 
@@ -770,4 +855,4 @@ else:
 #   FOOTER
 # =========================
 st.markdown("---")
-st.markdown("🌍 Thanks for exploring the Travel Dashboard!")
+st.markdown("🌍 Thanks for exploring the Travel Dashboard!  \n_Data is stored in USD; currency selection affects display only._")
