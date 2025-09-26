@@ -31,17 +31,23 @@ st.markdown("""
 </div>
 """, unsafe_allow_html=True)
 
-# --- Fix: prevent topbar from being cut off ---
+# --- Prevent topbar clipping & add generous safe-area padding ---
 st.markdown("""
 <style>
-/* Give the main view a little top padding */
+:root { --safe-top: env(safe-area-inset-top, 0px); }
+
+/* Add generous top padding to the app view so header never clips */
 [data-testid="stAppViewContainer"]{
-  padding-top: 8px !important;
+  padding-top: calc(28px + var(--safe-top)) !important;
 }
-/* Remove negative top margin & respect safe-area insets (iOS notch) */
+
+/* Ensure the sticky bar renders fully below the browser edge */
 .topbar{
-  margin: 0 -1rem 1rem -1rem !important;
-  padding-top: calc(14px + env(safe-area-inset-top, 0px)) !important;
+  top: 0;
+  margin-top: 0 !important;             /* remove any negative margins */
+  padding-top: calc(14px + var(--safe-top)) !important;
+  transform: translateZ(0);             /* fixes rare paint clipping */
+  box-sizing: border-box;
 }
 </style>
 """, unsafe_allow_html=True)
