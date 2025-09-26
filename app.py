@@ -10,45 +10,84 @@ import plotly.express as px
 # =========================
 st.set_page_config(page_title="Travel Dashboard", page_icon="🌍", layout="wide")
 
-# --- Sticky top header bar ---
+# --- Global CSS: spacing + sticky header protection + styles ---
 st.markdown("""
 <style>
+:root { --safe-top: env(safe-area-inset-top, 0px); }
+
+/* Extra padding for the whole view (covers different Streamlit builds) */
+[data-testid="stAppViewContainer"],
+main[data-testid="block-container"] {
+  padding-top: calc(24px + var(--safe-top)) !important;
+}
+
+/* Sometimes the main wrapper can clip children; make sure it doesn't */
+[data-testid="stAppViewContainer"] > div:first-child {
+  overflow: visible !important;
+}
+
+/* --- SIDEBAR: navy blue theme --- */
+section[data-testid="stSidebar"],
+[data-testid="stSidebar"] {
+  background-color: #0f2557 !important;   /* NAVY */
+  color: #f5f7fa !important;              /* near-white text */
+  border-right: 1px solid #0a1a34 !important;
+  position: relative; z-index: 2;
+}
+[data-testid="stSidebar"] > div:first-child,
+[data-testid="stSidebar"] [data-testid="stSidebarContent"] {
+  background-color: transparent !important;
+  padding: 0.8rem !important;
+}
+[data-testid="stSidebar"] * { color: #f5f7fa !important; }
+[data-testid="stSidebar"] h2, 
+[data-testid="stSidebar"] h3,
+[data-testid="stSidebar"] label { color: #e8ecf5 !important; }
+[data-testid="stSidebar"] input, 
+[data-testid="stSidebar"] textarea,
+[data-testid="stSidebar"] select {
+  background: #0a1a34 !important;
+  color: #f5f7fa !important;
+  border: 1px solid #1c366a !important;
+}
+[data-testid="stSidebar"] [data-testid="stExpander"] > div {
+  background: #142f66 !important;
+  border: 1px solid #1c3d80 !important;
+  border-radius: 10px !important;
+}
+
+/* Plotly: transparent plot area so background shows */
+.js-plotly-plot .plotly .bg { fill: rgba(255,255,255,0.0) !important; }
+
+/* Main panel 'glass' look */
+.block-container {
+  background: rgba(255,255,255,0.60);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  border-radius: 16px;
+  padding: 1.2rem 1.4rem;
+  box-shadow: 0 10px 30px rgba(0,0,0,0.08);
+  position: relative; z-index: 1; /* Above background image */
+}
+
+/* Topbar style; spacing handled below */
 .topbar {
   position: sticky; top: 0; z-index: 1000;
   background: rgba(15,37,87,0.92); /* navy */
   backdrop-filter: blur(6px);
   -webkit-backdrop-filter: blur(6px);
-  color: #ffffff; padding: 14px 18px; margin: -1rem -1rem 1rem -1rem;
+  color: #ffffff; padding: 14px 18px; margin: 0 -1rem 1rem -1rem;
   border-bottom: 1px solid rgba(255,255,255,0.12);
   border-radius: 0 0 12px 12px;
+  padding-top: calc(14px + var(--safe-top)) !important; /* respect safe area */
+  transform: translateZ(0);  /* prevents rare paint clipping */
+  box-sizing: border-box;
 }
 .topbar h1 { margin: 0; font-size: 1.6rem; line-height: 1.2; }
 .topbar .sub { font-size: 0.95rem; opacity: 0.95; margin-top: 2px; }
-</style>
-<div class="topbar">
-  <h1>🌍 Travel Dashboard</h1>
-  <div class="sub">Track trips, meals, and costs • somewhere-else.org</div>
-</div>
-""", unsafe_allow_html=True)
 
-# --- Prevent topbar clipping & add generous safe-area padding ---
-st.markdown("""
-<style>
-:root { --safe-top: env(safe-area-inset-top, 0px); }
-
-/* Add generous top padding to the app view so header never clips */
-[data-testid="stAppViewContainer"]{
-  padding-top: calc(28px + var(--safe-top)) !important;
-}
-
-/* Ensure the sticky bar renders fully below the browser edge */
-.topbar{
-  top: 0;
-  margin-top: 0 !important;             /* remove any negative margins */
-  padding-top: calc(14px + var(--safe-top)) !important;
-  transform: translateZ(0);             /* fixes rare paint clipping */
-  box-sizing: border-box;
-}
+/* Explicit spacer above the topbar; adjust height if you still see clipping */
+#top-spacer { height: 36px; }  /* Try 48px if needed */
 </style>
 """, unsafe_allow_html=True)
 
@@ -94,68 +133,6 @@ if os.path.exists("background.jpg"):
     except Exception:
         bg_bytes = None
 inject_background(bg_bytes)
-
-# =========================
-#   PANEL & SIDEBAR STYLES (NAVY)
-# =========================
-panel_rgba = "rgba(255,255,255,0.60)"
-st.markdown(f"""
-<style>
-/* Give main content a subtle 'glass' panel */
-.block-container {{
-  background: {panel_rgba};
-  backdrop-filter: blur(6px);
-  -webkit-backdrop-filter: blur(6px);
-  border-radius: 16px;
-  padding: 1.2rem 1.4rem;
-  box-shadow: 0 10px 30px rgba(0,0,0,0.08);
-  position: relative; z-index: 1; /* Above background image */
-}}
-
-/* --- SIDEBAR: navy blue --- */
-section[data-testid="stSidebar"],
-[data-testid="stSidebar"] {{
-  background-color: #0f2557 !important;   /* NAVY */
-  color: #f5f7fa !important;              /* near-white text */
-  border-right: 1px solid #0a1a34 !important;
-  position: relative; z-index: 2;  /* Above background */
-}}
-
-/* Inner content */
-[data-testid="stSidebar"] > div:first-child,
-[data-testid="stSidebar"] [data-testid="stSidebarContent"] {{
-  background-color: transparent !important;
-  padding: 0.8rem !important;
-}}
-
-/* Typography in sidebar */
-[data-testid="stSidebar"] * {{ color: #f5f7fa !important; }}
-[data-testid="stSidebar"] h2, 
-[data-testid="stSidebar"] h3,
-[data-testid="stSidebar"] label {{
-  color: #e8ecf5 !important;
-}}
-
-/* Inputs on dark sidebar */
-[data-testid="stSidebar"] input, 
-[data-testid="stSidebar"] textarea,
-[data-testid="stSidebar"] select {{
-  background: #0a1a34 !important;
-  color: #f5f7fa !important;
-  border: 1px solid #1c366a !important;
-}}
-
-/* Expander panels in sidebar */
-[data-testid="stSidebar"] [data-testid="stExpander"] > div {{
-  background: #142f66 !important;
-  border: 1px solid #1c3d80 !important;
-  border-radius: 10px !important;
-}}
-
-/* Plotly: transparent plot area so background shows */
-.js-plotly-plot .plotly .bg {{ fill: rgba(255,255,255,0.0) !important; }}
-</style>
-""", unsafe_allow_html=True)
 
 # =========================
 #   OPTIONAL: KALEIDO PNG EXPORT SUPPORT
@@ -394,6 +371,18 @@ trips["year"] = year_series(pd.to_datetime(trips["start_date"], errors="coerce")
 # Write back (post-derivations)
 st.session_state.trips_df = trips
 st.session_state.meals_df = meals
+
+# =========================
+#   (1) SPACER, (2) TOPBAR
+# =========================
+st.markdown('<div id="top-spacer"></div>', unsafe_allow_html=True)
+
+st.markdown("""
+<div class="topbar">
+  <h1>🌍 Travel Dashboard</h1>
+  <div class="sub">Track trips, meals, and costs • somewhere-else.org</div>
+</div>
+""", unsafe_allow_html=True)
 
 # =========================
 #   ➕ ADD / MANAGE DATA
