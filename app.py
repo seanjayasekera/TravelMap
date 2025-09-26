@@ -5,14 +5,14 @@ import streamlit as st
 import pandas as pd
 import plotly.express as px
 
-# Optional for live FX
+# Optional live FX
 try:
     import requests
     REQUESTS_OK = True
 except Exception:
     REQUESTS_OK = False
 
-# Optional for full ISO-4217 currency list
+# ISO-4217 currency metadata
 try:
     import pycountry
     PYCOUNTRY_OK = True
@@ -29,22 +29,20 @@ st.markdown("""
 <style>
 :root { --safe-top: env(safe-area-inset-top, 0px); }
 
-/* Extra padding for the whole view (covers different Streamlit builds) */
 [data-testid="stAppViewContainer"],
 main[data-testid="block-container"] {
   padding-top: calc(24px + var(--safe-top)) !important;
 }
 
-/* Sometimes the main wrapper can clip children; make sure it doesn't */
 [data-testid="stAppViewContainer"] > div:first-child {
   overflow: visible !important;
 }
 
-/* --- SIDEBAR: navy blue theme --- */
+/* Sidebar navy style */
 section[data-testid="stSidebar"],
 [data-testid="stSidebar"] {
-  background-color: #0f2557 !important;   /* NAVY */
-  color: #f5f7fa !important;              /* near-white text */
+  background-color: #0f2557 !important;
+  color: #f5f7fa !important;
   border-right: 1px solid #0a1a34 !important;
   position: relative; z-index: 2;
 }
@@ -70,10 +68,10 @@ section[data-testid="stSidebar"],
   border-radius: 10px !important;
 }
 
-/* Plotly: transparent plot area so background shows */
+/* Plotly transparent plot bg */
 .js-plotly-plot .plotly .bg { fill: rgba(255,255,255,0.0) !important; }
 
-/* Main panel 'glass' look */
+/* Main panel glass look */
 .block-container {
   background: rgba(255,255,255,0.60);
   backdrop-filter: blur(6px);
@@ -81,27 +79,27 @@ section[data-testid="stSidebar"],
   border-radius: 16px;
   padding: 1.2rem 1.4rem;
   box-shadow: 0 10px 30px rgba(0,0,0,0.08);
-  position: relative; z-index: 1; /* Above background image */
+  position: relative; z-index: 1;
 }
 
-/* Topbar style; spacing handled below */
+/* Topbar */
 .topbar {
   position: sticky; top: 0; z-index: 1000;
-  background: rgba(15,37,87,0.92); /* navy */
+  background: rgba(15,37,87,0.92);
   backdrop-filter: blur(6px);
   -webkit-backdrop-filter: blur(6px);
   color: #ffffff; padding: 14px 18px; margin: 0 -1rem 1rem -1rem;
   border-bottom: 1px solid rgba(255,255,255,0.12);
   border-radius: 0 0 12px 12px;
-  padding-top: calc(14px + var(--safe-top)) !important; /* respect safe area */
-  transform: translateZ(0);  /* prevents rare paint clipping */
+  padding-top: calc(14px + var(--safe-top)) !important;
+  transform: translateZ(0);
   box-sizing: border-box;
 }
 .topbar h1 { margin: 0; font-size: 1.6rem; line-height: 1.2; }
 .topbar .sub { font-size: 0.95rem; opacity: 0.95; margin-top: 2px; }
 
-/* Explicit spacer above the topbar; adjust height if you still see clipping */
-#top-spacer { height: 36px; }  /* Try 48px if needed */
+/* Spacer above the topbar */
+#top-spacer { height: 36px; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -109,10 +107,6 @@ section[data-testid="stSidebar"],
 #   BACKGROUND (image if present; gradient fallback)
 # =========================
 def inject_background(img_bytes: bytes | None):
-    """
-    Adds a fixed, full-screen background behind the app.
-    If img_bytes is None, falls back to a soft gradient with a dark vignette.
-    """
     if not img_bytes:
         st.markdown("""
 <div id="app-bg"
@@ -138,7 +132,6 @@ def inject_background(img_bytes: bytes | None):
 </div>
 """, unsafe_allow_html=True)
 
-# Try to load background.jpg from the same folder as app.py
 bg_bytes = None
 if os.path.exists("background.jpg"):
     try:
@@ -149,7 +142,7 @@ if os.path.exists("background.jpg"):
 inject_background(bg_bytes)
 
 # =========================
-#   OPTIONAL: KALEIDO PNG EXPORT SUPPORT
+#   PNG EXPORT SUPPORT (optional)
 # =========================
 try:
     import kaleido  # noqa: F401
@@ -173,7 +166,7 @@ def add_download(fig, filename, key):
         st.download_button("⬇️ Download PNG", data=png, file_name=filename, mime="image/png", key=key)
 
 # =========================
-#   OPTIONAL GEOCODER (geopy)
+#   OPTIONAL GEOCODER
 # =========================
 try:
     from geopy.geocoders import Nominatim
@@ -184,7 +177,6 @@ except Exception:
 
 @st.cache_data(show_spinner=False)
 def geocode_city_country(city: str, country: str):
-    """Return (lat, lon) or None using OpenStreetMap Nominatim; polite rate limits."""
     if not GEOCODER_OK or not city or not country:
         return None
     try:
@@ -198,7 +190,7 @@ def geocode_city_country(city: str, country: str):
     return None
 
 # =========================
-#   HELPERS (NO 'notes')
+#   DATA HELPERS (no notes)
 # =========================
 def empty_trips_df() -> pd.DataFrame:
     return pd.DataFrame({
@@ -276,7 +268,7 @@ def next_int(series):
     return (s.max() + 1) if len(s) else 1
 
 # =========================
-#   SIDEBAR: How to Use, Uploads, Templates, Currency, Clear
+#   SIDEBAR: How to Use / Uploads / Templates
 # =========================
 with st.sidebar.expander("ℹ️ How to use this app"):
     st.write("""
@@ -295,10 +287,12 @@ st.sidebar.header("Download Templates")
 st.sidebar.download_button("Download trips.csv template", data=template_trips_bytes(), file_name="trips.csv", mime="text/csv", key="tmpl_trips")
 st.sidebar.download_button("Download meals.csv template", data=template_meals_bytes(), file_name="meals.csv", mime="text/csv", key="tmpl_meals")
 
-# ---------- Currency section (ALL ISO-4217) ----------
+# =========================
+#   CURRENCY (Global ISO list w/ friendly labels)
+# =========================
 st.sidebar.header("Currency")
 
-# Symbol hints for many common currencies (fallback = no symbol, show code)
+# Symbol hints for nicer formatting
 CURRENCY_SYMBOLS = {
     "USD":"$", "EUR":"€", "GBP":"£", "CAD":"$", "AUD":"$", "NZD":"$",
     "JPY":"¥", "CNY":"¥", "HKD":"$", "TWD":"$", "KRW":"₩",
@@ -308,39 +302,87 @@ CURRENCY_SYMBOLS = {
     "HUF":"Ft", "CZK":"Kč", "RON":"lei", "ARS":"$"
 }
 
+# Country hints for friendly labels: code -> primary/representative country name
+COUNTRY_HINTS = {
+    "USD":"United States", "EUR":"European Union", "GBP":"United Kingdom",
+    "JPY":"Japan", "CNY":"China", "HKD":"Hong Kong", "TWD":"Taiwan", "KRW":"South Korea",
+    "INR":"India", "SGD":"Singapore", "CHF":"Switzerland",
+    "SEK":"Sweden", "NOK":"Norway", "DKK":"Denmark", "PLN":"Poland", "TRY":"Türkiye",
+    "AED":"United Arab Emirates", "SAR":"Saudi Arabia", "BRL":"Brazil", "MXN":"Mexico",
+    "ZAR":"South Africa", "THB":"Thailand", "PHP":"Philippines", "IDR":"Indonesia",
+    "MYR":"Malaysia", "VND":"Vietnam", "ILS":"Israel", "HUF":"Hungary",
+    "CZK":"Czechia", "RON":"Romania", "ARS":"Argentina", "AUD":"Australia", "NZD":"New Zealand", "CAD":"Canada"
+}
+
 def iso_currency_codes():
-    """
-    Return a sorted list of ISO-4217 alphabetic currency codes.
-    Excludes special 'X*' pseudo-currencies (XAU, XAG, XDR, etc.).
-    Falls back to a practical list if pycountry is unavailable.
-    """
+    """All active ISO-4217 codes (excludes X* pseudo-currencies)."""
     if not PYCOUNTRY_OK:
-        return sorted(list(set([
-            "USD","EUR","GBP","CAD","AUD","NZD","JPY","CNY","HKD","TWD","KRW",
-            "INR","SGD","CHF","SEK","NOK","DKK","PLN","TRY","AED","SAR","BRL","MXN","ZAR",
-            "THB","PHP","IDR","MYR","VND","ILS","HUF","CZK","RON","ARS"
-        ])))
+        # Fallback set
+        return sorted(list(set(list(COUNTRY_HINTS.keys()) + ["AUD","CAD","NZD"])))
     codes = []
     for c in pycountry.currencies:
         try:
             code = c.alpha_3
-            if not code:
+            if not code or code.startswith("X"):
                 continue
-            # Exclude special codes that start with 'X' (metals, testing, IMF SDR, etc.)
-            if code.startswith("X"):
+            # Exclude historic currencies without funding in modern use
+            if getattr(c, "withdrawal_date", None):
                 continue
             codes.append(code)
         except Exception:
             continue
-    # Put USD first, then the rest alphabetically
     codes = sorted(set(codes))
+    # Put USD first if present
     if "USD" in codes:
         codes.remove("USD")
         codes = ["USD"] + codes
     return codes
 
+def code_to_currency_name(code: str) -> str:
+    """Return the official currency name for code; fallback to code."""
+    if PYCOUNTRY_OK:
+        try:
+            c = pycountry.currencies.get(alpha_3=code)
+            if c and getattr(c, "name", None):
+                return c.name
+        except Exception:
+            pass
+    # Fallback humanized name for a few common codes if pycountry missing
+    fallback = {
+        "USD":"US Dollar", "EUR":"Euro", "GBP":"Pound Sterling", "JPY":"Japanese Yen",
+        "THB":"Thai Baht", "INR":"Indian Rupee", "CNY":"Yuan Renminbi", "BRL":"Brazilian Real",
+        "ZAR":"South African Rand", "AUD":"Australian Dollar", "CAD":"Canadian Dollar",
+        "CHF":"Swiss Franc", "SEK":"Swedish Krona", "NOK":"Norwegian Krone", "DKK":"Danish Krone",
+        "NZD":"New Zealand Dollar", "SGD":"Singapore Dollar", "MXN":"Mexican Peso"
+    }
+    return fallback.get(code, code)
+
+def build_currency_labels(codes):
+    """
+    Build friendly labels like 'Thailand – Thai Baht (THB)'.
+    If we don't have a country hint, show 'Thai Baht (THB)'.
+    """
+    labels = []
+    label_to_code = {}
+    for code in codes:
+        name = code_to_currency_name(code)
+        country = COUNTRY_HINTS.get(code)
+        if country:
+            label = f"{country} – {name} ({code})"
+        else:
+            label = f"{name} ({code})"
+        labels.append(label)
+        label_to_code[label] = code
+    # USD at top, then alphabetical
+    labels_sorted = sorted([l for l in labels if not l.endswith("(USD)")])  # temp
+    labels = [label for label in labels if label.endswith("(USD)")] + labels_sorted
+    return labels, label_to_code
+
 ALL_CODES = iso_currency_codes()
-selected_currency = st.sidebar.selectbox("Display currency", ALL_CODES, index=0)
+FRIENDLY_LABELS, LABEL_TO_CODE = build_currency_labels(ALL_CODES)
+
+selected_label = st.sidebar.selectbox("Display currency", FRIENDLY_LABELS, index=0)
+selected_currency = LABEL_TO_CODE[selected_label]
 
 st.sidebar.caption("Optional: Upload `exchange_rates.csv` with columns `currency,per_usd` (1 USD → per_usd target units).")
 rates_file = st.sidebar.file_uploader("Upload exchange_rates.csv", type=["csv"], key="rates_uploader")
@@ -376,7 +418,6 @@ def fetch_live_rates_base_usd():
         if r.status_code == 200:
             data = r.json()
             if "rates" in data and isinstance(data["rates"], dict):
-                # Already "per USD" (1 USD -> X units of currency)
                 return {k.upper(): float(v) for k, v in data["rates"].items() if isinstance(v, (int, float))}
     except Exception:
         pass
@@ -391,7 +432,7 @@ if use_live:
     else:
         st.sidebar.warning("Couldn’t fetch live rates. Using any uploaded/custom rates (or USD only).")
 
-# Helpers for currency formatting / conversion
+# Symbol helpers
 def currency_symbol(code: str) -> str:
     return CURRENCY_SYMBOLS.get(code, "")
 
@@ -399,14 +440,12 @@ def convert_usd(amount_usd: float, code: str) -> float:
     per_usd = rates.get(code)
     try:
         if per_usd is None:
-            # No rate available; if not USD, we can’t convert. Fall back to USD.
-            return float(amount_usd) if code == "USD" else float(amount_usd)  # still show something; message below
+            return float(amount_usd)  # fall back to USD numeric (still shows code)
         return float(amount_usd) * float(per_usd)
     except Exception:
         return 0.0
 
-def fmt_money(amount_usd: float, code: str) -> str:
-    val = convert_usd(amount_usd, code)
+def fmt_money_val(val: float, code: str) -> str:
     sym = currency_symbol(code)
     if sym:
         s = f"{sym}{val:,.2f}"
@@ -418,7 +457,7 @@ def fmt_money(amount_usd: float, code: str) -> str:
 if selected_currency not in rates and selected_currency != "USD":
     st.sidebar.info(f"No rate found for {selected_currency}. Upload rates CSV or enable live rates.")
 
-# Clear buttons
+# Clear data buttons
 col_clear1, col_clear2 = st.sidebar.columns(2)
 with col_clear1:
     if st.button("Clear trips", use_container_width=True):
@@ -429,13 +468,14 @@ with col_clear2:
         st.session_state.meals_df = empty_meals_df()
         st.sidebar.success("Meals cleared.")
 
-# Initialize session-state authoritative copies
+# =========================
+#   LOAD / SYNC SESSION DATA
+# =========================
 if "trips_df" not in st.session_state:
     st.session_state.trips_df = empty_trips_df()
 if "meals_df" not in st.session_state:
     st.session_state.meals_df = empty_meals_df()
 
-# Replace data immediately when files are uploaded
 if up_trips is not None:
     try:
         trips_loaded = pd.read_csv(up_trips, parse_dates=["start_date", "end_date"])
@@ -460,9 +500,7 @@ if up_meals is not None:
 trips = st.session_state.trips_df.copy()
 meals = st.session_state.meals_df.copy()
 
-# =========================
-#   BASIC SCHEMA (ensure required cols)
-# =========================
+# Ensure columns
 required_trip_cols = {"trip_id","trip_name","start_date","end_date","primary_city","country","lat","lon","total_cost_usd"}
 missing = required_trip_cols - set(trips.columns)
 if missing:
@@ -472,9 +510,7 @@ if missing:
     st.session_state.trips_df = trips
     trips = st.session_state.trips_df
 
-# =========================
-#   DERIVED COLUMNS (safe on empty)
-# =========================
+# Derivations
 for col in ["lat", "lon", "total_cost_usd", "transportation_cost_usd", "accommodation_cost_usd"]:
     if col in trips.columns:
         trips[col] = pd.to_numeric(trips[col], errors="coerce")
@@ -491,7 +527,6 @@ trips["cost_per_day"] = (
     trips["days"].replace({0: 1})
 ).round(2)
 
-# Compute food per trip from meals if present
 if {"trip_id", "cost_usd"}.issubset(meals.columns) and len(meals):
     meals = meals.copy()
     meals["cost_usd"] = pd.to_numeric(meals["cost_usd"], errors="coerce").fillna(0)
@@ -506,15 +541,14 @@ else:
 trips["food_cost_usd"] = pd.to_numeric(trips["food_cost_usd"], errors="coerce").fillna(0).clip(lower=0)
 trips["year"] = year_series(pd.to_datetime(trips["start_date"], errors="coerce"))
 
-# Write back (post-derivations)
+# Write back
 st.session_state.trips_df = trips
 st.session_state.meals_df = meals
 
 # =========================
-#   (1) SPACER, (2) TOPBAR
+#   TOPBAR
 # =========================
 st.markdown('<div id="top-spacer"></div>', unsafe_allow_html=True)
-
 st.markdown("""
 <div class="topbar">
   <h1>🌍 Travel Dashboard</h1>
@@ -523,7 +557,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # =========================
-#   ➕ ADD / MANAGE DATA
+#   ADD / MANAGE DATA
 # =========================
 st.markdown("## ➕ Add / Manage Data")
 tab_add_trip, tab_add_meal, tab_edit = st.tabs(["Add Trip", "Add Meal", "Edit Tables"])
@@ -621,7 +655,7 @@ with tab_add_meal:
                         "cuisine": cuisine,
                         "restaurant": restaurant,
                         "dish_name": dish_name,
-                        "cost_usd": float(cost_usd),   # stored in USD
+                        "cost_usd": float(cost_usd),
                         "rating_1_10": int(rating_1_10),
                         "date": pd.to_datetime(date),
                     }
@@ -661,63 +695,24 @@ with tab_edit:
         st.download_button("⬇️ Download updated meals.csv", data=df_to_csv_bytes(st.session_state.meals_df),
                            file_name="meals.csv", mime="text/csv", key="dl_meals_csv")
 
-# Refresh working copies and re-compute derived columns after edits
-trips = st.session_state.trips_df.copy()
-meals = st.session_state.meals_df.copy()
-for col in ["lat", "lon", "total_cost_usd", "transportation_cost_usd", "accommodation_cost_usd"]:
-    if col in trips.columns:
-        trips[col] = pd.to_numeric(trips[col], errors="coerce")
-trips["start_date"] = pd.to_datetime(trips["start_date"], errors="coerce")
-trips["end_date"] = pd.to_datetime(trips["end_date"], errors="coerce")
-if len(trips):
-    trips["days"] = (trips["end_date"] - trips["start_date"]).dt.days.clip(lower=1)
-else:
-    trips["days"] = pd.Series(dtype="Int64")
-trips["cost_per_day"] = (
-    pd.to_numeric(trips.get("total_cost_usd", pd.Series(dtype="float")), errors="coerce").fillna(0) /
-    trips["days"].replace({0: 1})
-).round(2)
-if {"trip_id", "cost_usd"}.issubset(meals.columns) and len(meals):
-    meals["cost_usd"] = pd.to_numeric(meals["cost_usd"], errors="coerce").fillna(0)
-    meals["trip_id"] = pd.to_numeric(meals["trip_id"], errors="coerce").astype("Int64")
-    food_by_trip = meals.groupby("trip_id", dropna=False)["cost_usd"].sum().rename("food_cost_usd")
-    trips = trips.drop(columns=[c for c in trips.columns if c.startswith("food_cost_usd")], errors="ignore")
-    trips = trips.merge(food_by_trip, how="left", left_on="trip_id", right_index=True)
-trips["food_cost_usd"] = pd.to_numeric(trips["food_cost_usd"], errors="coerce").fillna(0).clip(lower=0)
-trips["year"] = year_series(pd.to_datetime(trips["start_date"], errors="coerce"))
-
 # =========================
-#   CURRENCY-VIEW TRANSFORMS (display only)
+#   DISPLAY CURRENCY VIEW
 # =========================
 display_currency = selected_currency
-sym = currency_symbol(display_currency)
+sym = CURRENCY_SYMBOLS.get(display_currency, "")
 
-# Create a view with converted numbers for plotting/metrics
 t = trips.copy()
 if len(t):
     t["total_cost_disp"] = t["total_cost_usd"].apply(lambda v: convert_usd(v, display_currency))
     t["transportation_cost_disp"] = pd.to_numeric(t.get("transportation_cost_usd", 0), errors="coerce").fillna(0).apply(lambda v: convert_usd(v, display_currency))
     t["accommodation_cost_disp"] = pd.to_numeric(t.get("accommodation_cost_usd", 0), errors="coerce").fillna(0).apply(lambda v: convert_usd(v, display_currency))
     t["food_cost_disp"] = pd.to_numeric(t.get("food_cost_usd", 0), errors="coerce").fillna(0).apply(lambda v: convert_usd(v, display_currency))
-    # cost/day in displayed currency = (usd/day) * per_usd
     t["cost_per_day_disp"] = t["cost_per_day"].apply(lambda v: convert_usd(v, display_currency))
     t["year"] = year_series(pd.to_datetime(t["start_date"], errors="coerce"))
 
-# Meals view (for table & aggregation)
 meals_disp = meals.copy()
 if len(meals_disp):
     meals_disp["cost_disp"] = pd.to_numeric(meals_disp["cost_usd"], errors="coerce").fillna(0).apply(lambda v: convert_usd(v, display_currency))
-
-# =========================
-#   (1) SPACER, (2) TOPBAR (already inserted above)
-# =========================
-st.markdown('<div id="top-spacer"></div>', unsafe_allow_html=True)
-st.markdown("""
-<div class="topbar">
-  <h1>🌍 Travel Dashboard</h1>
-  <div class="sub">Track trips, meals, and costs • somewhere-else.org</div>
-</div>
-""", unsafe_allow_html=True)
 
 # =========================
 #   FILTERS & METRICS
@@ -741,7 +736,6 @@ if len(t) and search:
         search_mask |= t[c].astype(str).str.contains(s, case=False, na=False)
     t = t.loc[search_mask].copy()
 
-# Metrics (display currency)
 c1, c2, c3, c4 = st.columns(4)
 with c1: st.metric("Trips", f"{len(t)}")
 with c2: st.metric("Countries", f"{t['country'].nunique() if len(t) else 0}")
@@ -764,12 +758,7 @@ with col1:
     if len(t):
         fig_map = px.scatter_geo(
             t, lat="lat", lon="lon", hover_name="trip_name",
-            hover_data={
-                "country": True,
-                "total_cost_disp": True,
-                "days": True,
-                "lat": False, "lon": False
-            },
+            hover_data={"country": True, "total_cost_disp": True, "days": True, "lat": False, "lon": False},
             projection="natural earth",
         )
         fig_map.update_traces(marker=dict(color="red", size=9, line=dict(width=1, color="black")))
@@ -846,7 +835,6 @@ if {"trip_id","cuisine","rating_1_10"}.issubset(meals.columns) and len(meals) an
     if meals_r.empty:
         st.info("No meals match the current filters.")
     else:
-        # Display table in selected currency
         display_cols = [c for c in ["meal_id","trip_name","date_str","cuisine","restaurant","dish_name","rating_1_10","cost_disp"] if c in meals_r.columns]
         table_df = meals_r[display_cols].sort_values("meal_id" if "meal_id" in meals_r.columns else "trip_name").reset_index(drop=True)
         table_df = table_df.rename(columns={"date_str": "date", "cost_disp": f"cost ({display_currency})"})
@@ -879,7 +867,7 @@ else:
 st.markdown("---")
 
 # =========================
-#   TRANSPORT / FOOD / ACCOM
+#   TRANSPORT / FOOD / ACCOM SPEND
 # =========================
 st.subheader(f"🚗 Transportation spend per trip ({display_currency})")
 if "transportation_cost_disp" in t.columns and len(t) and t["transportation_cost_disp"].notna().any():
