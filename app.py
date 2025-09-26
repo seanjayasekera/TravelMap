@@ -10,7 +10,7 @@ import plotly.express as px
 # =========================
 st.set_page_config(page_title="Travel Dashboard", page_icon="🌍", layout="wide")
 
-# --- Sticky top header bar (visible on any background) ---
+# --- Sticky top header bar ---
 st.markdown("""
 <style>
 .topbar {
@@ -31,13 +31,28 @@ st.markdown("""
 </div>
 """, unsafe_allow_html=True)
 
+# --- Fix: prevent topbar from being cut off ---
+st.markdown("""
+<style>
+/* Give the main view a little top padding */
+[data-testid="stAppViewContainer"]{
+  padding-top: 8px !important;
+}
+/* Remove negative top margin & respect safe-area insets (iOS notch) */
+.topbar{
+  margin: 0 -1rem 1rem -1rem !important;
+  padding-top: calc(14px + env(safe-area-inset-top, 0px)) !important;
+}
+</style>
+""", unsafe_allow_html=True)
+
 # =========================
 #   BACKGROUND (image if present; gradient fallback)
 # =========================
 def inject_background(img_bytes: bytes | None):
     """
-    Adds a fixed, full-screen background.
-    If img_bytes is None, falls back to a soft light gradient with a dark vignette — no black screen.
+    Adds a fixed, full-screen background behind the app.
+    If img_bytes is None, falls back to a soft gradient with a dark vignette.
     """
     if not img_bytes:
         st.markdown("""
@@ -133,8 +148,6 @@ section[data-testid="stSidebar"],
 
 /* Plotly: transparent plot area so background shows */
 .js-plotly-plot .plotly .bg {{ fill: rgba(255,255,255,0.0) !important; }}
-
-/* Do NOT override global h1..h6 colors to dark; header is white */
 </style>
 """, unsafe_allow_html=True)
 
