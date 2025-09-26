@@ -5,6 +5,20 @@ import streamlit as st
 import pandas as pd
 import plotly.express as px
 
+# Optional for live FX
+try:
+    import requests
+    REQUESTS_OK = True
+except Exception:
+    REQUESTS_OK = False
+
+# Optional for full ISO-4217 currency list
+try:
+    import pycountry
+    PYCOUNTRY_OK = True
+except Exception:
+    PYCOUNTRY_OK = False
+
 # =========================
 #   PAGE / THEME SETTINGS
 # =========================
@@ -281,30 +295,59 @@ st.sidebar.header("Download Templates")
 st.sidebar.download_button("Download trips.csv template", data=template_trips_bytes(), file_name="trips.csv", mime="text/csv", key="tmpl_trips")
 st.sidebar.download_button("Download meals.csv template", data=template_meals_bytes(), file_name="meals.csv", mime="text/csv", key="tmpl_meals")
 
-# ---- Currency selection & custom rates ----
+# ---------- Currency section (ALL ISO-4217) ----------
 st.sidebar.header("Currency")
-CURRENCY_SYMBOLS = {
-    "USD": "$", "EUR": "€", "GBP": "£", "CAD": "$", "AUD": "$",
-    "JPY": "¥", "INR": "₹", "SGD": "$"
-}
-# Default 'per USD' conversion (1 USD -> per_usd units of target currency)
-DEFAULT_RATES_PER_USD = {
-    "USD": 1.00,
-    "EUR": 0.92,
-    "GBP": 0.78,
-    "CAD": 1.35,
-    "AUD": 1.50,
-    "JPY": 155.00,
-    "INR": 84.00,
-    "SGD": 1.34,
-}
-selected_currency = st.sidebar.selectbox("Display currency", list(CURRENCY_SYMBOLS.keys()), index=0)
 
-# Optional: users can upload a CSV to override default rates
-st.sidebar.caption("Optional: Upload a CSV with columns `currency,per_usd` to override rates.")
+# Symbol hints for many common currencies (fallback = no symbol, show code)
+CURRENCY_SYMBOLS = {
+    "USD":"$", "EUR":"€", "GBP":"£", "CAD":"$", "AUD":"$", "NZD":"$",
+    "JPY":"¥", "CNY":"¥", "HKD":"$", "TWD":"$", "KRW":"₩",
+    "INR":"₹", "SGD":"$", "CHF":"Fr", "SEK":"kr", "NOK":"kr", "DKK":"kr",
+    "PLN":"zł", "TRY":"₺", "AED":"د.إ", "SAR":"﷼", "BRL":"R$", "MXN":"$", "ZAR":"R",
+    "THB":"฿", "PHP":"₱", "IDR":"Rp", "MYR":"RM", "VND":"₫", "ILS":"₪",
+    "HUF":"Ft", "CZK":"Kč", "RON":"lei", "ARS":"$"
+}
+
+def iso_currency_codes():
+    """
+    Return a sorted list of ISO-4217 alphabetic currency codes.
+    Excludes special 'X*' pseudo-currencies (XAU, XAG, XDR, etc.).
+    Falls back to a practical list if pycountry is unavailable.
+    """
+    if not PYCOUNTRY_OK:
+        return sorted(list(set([
+            "USD","EUR","GBP","CAD","AUD","NZD","JPY","CNY","HKD","TWD","KRW",
+            "INR","SGD","CHF","SEK","NOK","DKK","PLN","TRY","AED","SAR","BRL","MXN","ZAR",
+            "THB","PHP","IDR","MYR","VND","ILS","HUF","CZK","RON","ARS"
+        ])))
+    codes = []
+    for c in pycountry.currencies:
+        try:
+            code = c.alpha_3
+            if not code:
+                continue
+            # Exclude special codes that start with 'X' (metals, testing, IMF SDR, etc.)
+            if code.startswith("X"):
+                continue
+            codes.append(code)
+        except Exception:
+            continue
+    # Put USD first, then the rest alphabetically
+    codes = sorted(set(codes))
+    if "USD" in codes:
+        codes.remove("USD")
+        codes = ["USD"] + codes
+    return codes
+
+ALL_CODES = iso_currency_codes()
+selected_currency = st.sidebar.selectbox("Display currency", ALL_CODES, index=0)
+
+st.sidebar.caption("Optional: Upload `exchange_rates.csv` with columns `currency,per_usd` (1 USD → per_usd target units).")
 rates_file = st.sidebar.file_uploader("Upload exchange_rates.csv", type=["csv"], key="rates_uploader")
 
-rates = DEFAULT_RATES_PER_USD.copy()
+# Default: at least USD=1
+rates = {"USD": 1.0}
+
 if rates_file is not None:
     try:
         _rf = pd.read_csv(rates_file)
@@ -317,19 +360,47 @@ if rates_file is not None:
                         rates[code] = per_usd
                 except Exception:
                     pass
-            st.sidebar.success("Exchange rates loaded.")
+            st.sidebar.success("Custom exchange rates loaded.")
         else:
-            st.sidebar.error("CSV must have columns: currency, per_usd")
+            st.sidebar.error("CSV must include: currency, per_usd")
     except Exception:
         st.sidebar.error("Could not read rates CSV. Please check the file.")
+
+# Optional: live rates (exchangerate.host, base USD)
+@st.cache_data(ttl=3600, show_spinner=False)
+def fetch_live_rates_base_usd():
+    if not REQUESTS_OK:
+        return None
+    try:
+        r = requests.get("https://api.exchangerate.host/latest?base=USD", timeout=8)
+        if r.status_code == 200:
+            data = r.json()
+            if "rates" in data and isinstance(data["rates"], dict):
+                # Already "per USD" (1 USD -> X units of currency)
+                return {k.upper(): float(v) for k, v in data["rates"].items() if isinstance(v, (int, float))}
+    except Exception:
+        pass
+    return None
+
+use_live = st.sidebar.checkbox("Use live rates (exchangerate.host)", value=False)
+if use_live:
+    live = fetch_live_rates_base_usd()
+    if live:
+        rates.update(live)
+        st.sidebar.success("Live rates loaded (cached 1 hour).")
+    else:
+        st.sidebar.warning("Couldn’t fetch live rates. Using any uploaded/custom rates (or USD only).")
 
 # Helpers for currency formatting / conversion
 def currency_symbol(code: str) -> str:
     return CURRENCY_SYMBOLS.get(code, "")
 
 def convert_usd(amount_usd: float, code: str) -> float:
-    per_usd = rates.get(code, 1.0)
+    per_usd = rates.get(code)
     try:
+        if per_usd is None:
+            # No rate available; if not USD, we can’t convert. Fall back to USD.
+            return float(amount_usd) if code == "USD" else float(amount_usd)  # still show something; message below
         return float(amount_usd) * float(per_usd)
     except Exception:
         return 0.0
@@ -337,10 +408,15 @@ def convert_usd(amount_usd: float, code: str) -> float:
 def fmt_money(amount_usd: float, code: str) -> str:
     val = convert_usd(amount_usd, code)
     sym = currency_symbol(code)
-    # If symbol is $, show with code when not USD
-    prefix = f"{sym}" if code in ("USD","CAD","AUD","SGD") else sym
-    suffix_code = "" if code == "USD" else f" {code}"
-    return f"{prefix}{val:,.2f}{suffix_code}"
+    if sym:
+        s = f"{sym}{val:,.2f}"
+        return s if code in ("USD","CAD","AUD","NZD","SGD","HKD","MXN","ARS") else f"{s} {code}"
+    else:
+        return f"{val:,.2f} {code}"
+
+# Hint if chosen currency lacks a rate
+if selected_currency not in rates and selected_currency != "USD":
+    st.sidebar.info(f"No rate found for {selected_currency}. Upload rates CSV or enable live rates.")
 
 # Clear buttons
 col_clear1, col_clear2 = st.sidebar.columns(2)
@@ -633,9 +709,19 @@ if len(meals_disp):
     meals_disp["cost_disp"] = pd.to_numeric(meals_disp["cost_usd"], errors="coerce").fillna(0).apply(lambda v: convert_usd(v, display_currency))
 
 # =========================
+#   (1) SPACER, (2) TOPBAR (already inserted above)
+# =========================
+st.markdown('<div id="top-spacer"></div>', unsafe_allow_html=True)
+st.markdown("""
+<div class="topbar">
+  <h1>🌍 Travel Dashboard</h1>
+  <div class="sub">Track trips, meals, and costs • somewhere-else.org</div>
+</div>
+""", unsafe_allow_html=True)
+
+# =========================
 #   FILTERS & METRICS
 # =========================
-st.markdown("## ➕ Add / Manage Data")  # keep anchor visible as users scroll back after sidebar actions
 st.markdown("---")
 st.sidebar.header("Filters")
 countries = sorted(t["country"].dropna().unique().tolist()) if len(t) else []
@@ -661,10 +747,10 @@ with c1: st.metric("Trips", f"{len(t)}")
 with c2: st.metric("Countries", f"{t['country'].nunique() if len(t) else 0}")
 with c3:
     total_spend_disp = t["total_cost_disp"].sum() if len(t) else 0
-    st.metric(f"Total Spend ({display_currency})", f"{sym}{total_spend_disp:,.0f}")
+    st.metric(f"Total Spend ({display_currency})", f"{sym}{total_spend_disp:,.0f}" if sym else f"{total_spend_disp:,.0f} {display_currency}")
 with c4:
     med_cpd = t["cost_per_day_disp"].median() if len(t) else 0
-    st.metric(f"Median Cost/Day ({display_currency})", f"{sym}{med_cpd:,.2f}")
+    st.metric(f"Median Cost/Day ({display_currency})", f"{sym}{med_cpd:,.2f}" if sym else f"{med_cpd:,.2f} {display_currency}")
 
 st.markdown("---")
 
@@ -689,7 +775,6 @@ with col1:
         fig_map.update_traces(marker=dict(color="red", size=9, line=dict(width=1, color="black")))
         fig_map.update_geos(showcountries=True, showframe=False, landcolor="lightgray", oceancolor="lightblue", showocean=True)
         fig_map.update_layout(margin=dict(l=0,r=0,t=0,b=0), height=450, template="simple_white")
-        fig_map.update_traces(hovertemplate=f"<b>%{{hovertext}}</b><br>{display_currency}: %{{customdata[0]:,.0f}}<extra></extra>")
         st.plotly_chart(fig_map, use_container_width=True, config=PLOTLY_CONFIG)
         add_download(fig_map, f"map_{display_currency}.png", key="dl_map")
     else:
@@ -710,8 +795,9 @@ with col2:
             color="total_cost_disp", color_continuous_scale="Tealgrn",
         )
         if show_labels:
-            fig_cost.update_traces(text=df_total["total_cost_disp"].map(lambda v: f"{sym}{v:,.0f}"),
-                                   textposition="outside", cliponaxis=False)
+            fig_cost.update_traces(text=df_total["total_cost_disp"].map(
+                lambda v: (f"{sym}{v:,.0f}" if sym else f"{v:,.0f} {display_currency}")
+            ), textposition="outside", cliponaxis=False)
         fig_cost.update_traces(hovertemplate=f"<b>%{{x}}</b><br>{display_currency}: %{{y:,.0f}}<extra></extra>")
         fig_cost.update_layout(xaxis_tickangle=-20)
         apply_common_layout(fig_cost, height=450)
@@ -734,8 +820,9 @@ if len(t):
         color="cost_per_day_disp", color_continuous_scale="Blugrn",
     )
     if show_labels:
-        fig_cpd.update_traces(text=df_cpd["cost_per_day_disp"].map(lambda v: f"{sym}{v:,.2f}"),
-                              textposition="outside", cliponaxis=False)
+        fig_cpd.update_traces(text=df_cpd["cost_per_day_disp"].map(
+            lambda v: (f"{sym}{v:,.2f}" if sym else f"{v:,.2f} {display_currency}")
+        ), textposition="outside", cliponaxis=False)
     fig_cpd.update_traces(hovertemplate=f"<b>%{{y}}</b><br>{display_currency}/day: %{{x:,.2f}}<extra></extra>")
     apply_common_layout(fig_cpd, height=520)
     st.plotly_chart(fig_cpd, use_container_width=True, config=PLOTLY_CONFIG)
@@ -803,8 +890,9 @@ if "transportation_cost_disp" in t.columns and len(t) and t["transportation_cost
         color="transportation_cost_disp", color_continuous_scale="Tealgrn",
     )
     if show_labels:
-        fig_transport.update_traces(text=df_tr["transportation_cost_disp"].fillna(0).map(lambda v: f"{sym}{v:,.0f}"),
-                                    textposition="outside", cliponaxis=False)
+        fig_transport.update_traces(text=df_tr["transportation_cost_disp"].fillna(0).map(
+            lambda v: (f"{sym}{v:,.0f}" if sym else f"{v:,.0f} {display_currency}")
+        ), textposition="outside", cliponaxis=False)
     fig_transport.update_traces(hovertemplate=f"<b>%{{x}}</b><br>{display_currency}: %{{y:,.0f}}<extra></extra>")
     fig_transport.update_layout(xaxis_tickangle=-20)
     apply_common_layout(fig_transport)
@@ -822,8 +910,9 @@ if "food_cost_disp" in t.columns and len(t):
         color="food_cost_disp", color_continuous_scale="Viridis",
     )
     if show_labels:
-        fig_food.update_traces(text=df_food["food_cost_disp"].map(lambda v: f"{sym}{v:,.0f}"),
-                               textposition="outside", cliponaxis=False)
+        fig_food.update_traces(text=df_food["food_cost_disp"].map(
+            lambda v: (f"{sym}{v:,.0f}" if sym else f"{v:,.0f} {display_currency}")
+        ), textposition="outside", cliponaxis=False)
     fig_food.update_traces(hovertemplate=f"<b>%{{x}}</b><br>{display_currency}: %{{y:,.0f}}<extra></extra>")
     fig_food.update_layout(xaxis_tickangle=-20)
     apply_common_layout(fig_food)
@@ -841,8 +930,9 @@ if "accommodation_cost_disp" in t.columns and len(t) and t["accommodation_cost_d
         color="accommodation_cost_disp", color_continuous_scale="Purples",
     )
     if show_labels:
-        fig_accom.update_traces(text=df_ac["accommodation_cost_disp"].fillna(0).map(lambda v: f"{sym}{v:,.0f}"),
-                                textposition="outside", cliponaxis=False)
+        fig_accom.update_traces(text=df_ac["accommodation_cost_disp"].fillna(0).map(
+            lambda v: (f"{sym}{v:,.0f}" if sym else f"{v:,.0f} {display_currency}")
+        ), textposition="outside", cliponaxis=False)
     fig_accom.update_traces(hovertemplate=f"<b>%{{x}}</b><br>{display_currency}: %{{y:,.0f}}<extra></extra>")
     fig_accom.update_layout(xaxis_tickangle=-20)
     apply_common_layout(fig_accom)
