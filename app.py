@@ -571,16 +571,18 @@ if len(t) and search:
         search_mask |= t[c].astype(str).str.contains(s, case=False, na=False)
     t = t.loc[search_mask].copy()
 
-# Metrics (no "(USD)")
-c1, c2, c3, c4 = st.columns(4)
+# Metrics (now with Average Cost/Day)
+total_spend = t["total_cost_usd"].sum() if len(t) else 0
+total_days = t["days"].sum() if len(t) else 0
+avg_cpd_weighted = (total_spend / total_days) if total_days and total_spend else 0
+med_cpd = t["cost_per_day"].median() if len(t) else 0
+
+c1, c2, c3, c4, c5 = st.columns(5)
 with c1: st.metric("Trips", f"{len(t)}")
 with c2: st.metric("Countries", f"{t['country'].nunique() if len(t) else 0}")
-with c3:
-    total_spend = t["total_cost_usd"].sum() if len(t) else 0
-    st.metric("Total Spend", f"${total_spend:,.0f}")
-with c4:
-    med_cpd = t["cost_per_day"].median() if len(t) else 0
-    st.metric("Median Cost/Day", f"${med_cpd:,.2f}")
+with c3: st.metric("Total Spend", f"${total_spend:,.0f}")
+with c4: st.metric("Median Cost/Day", f"${med_cpd:,.2f}")
+with c5: st.metric("Average Cost/Day", f"${avg_cpd_weighted:,.2f}")
 
 st.markdown("---")
 
