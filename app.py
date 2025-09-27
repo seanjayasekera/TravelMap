@@ -571,7 +571,7 @@ if len(t) and search:
         search_mask |= t[c].astype(str).str.contains(s, case=False, na=False)
     t = t.loc[search_mask].copy()
 
-# Metrics (now with Average Cost/Day)
+# Metrics (with Average Cost/Day)
 total_spend = t["total_cost_usd"].sum() if len(t) else 0
 total_days = t["days"].sum() if len(t) else 0
 avg_cpd_weighted = (total_spend / total_days) if total_days and total_spend else 0
@@ -676,15 +676,32 @@ if {"trip_id","cuisine","rating_1_10"}.issubset(meals.columns) and len(meals) an
     if meals_r.empty:
         st.info("No meals match the current filters.")
     else:
-        # Display table (no "(USD)")
-        display_cols = [c for c in ["meal_id","trip_name","date_str","cuisine","restaurant","dish_name","rating_1_10","cost_usd"] if c in meals_r.columns]
-        table_df = meals_r[display_cols].sort_values("meal_id" if "meal_id" in meals_r.columns else "trip_name").reset_index(drop=True)
-        table_df = table_df.rename(columns={"date_str": "date", "cost_usd": "cost"})
+        # --- Food Ratings table (no meal_id; pretty headers) ---
+        display_cols = [
+            "trip_name", "date_str", "cuisine", "restaurant", "dish_name", "rating_1_10", "cost_usd"
+        ]
+        display_cols = [c for c in display_cols if c in meals_r.columns]
+        display_names = {
+            "trip_name": "Trip",
+            "date_str": "Date",
+            "cuisine": "Cuisine",
+            "restaurant": "Restaurant",
+            "dish_name": "Dish Name",
+            "rating_1_10": "Rating",
+            "cost_usd": "Cost",
+        }
+        table_df = (
+            meals_r[display_cols]
+            .sort_values(["trip_name", "date_str"])
+            .reset_index(drop=True)
+            .rename(columns=display_names)
+        )
         try:
             st.dataframe(table_df, use_container_width=True, hide_index=True)
         except TypeError:
             st.dataframe(table_df, use_container_width=True)
 
+        # Cuisine bar (0–10 scale)
         top_cuisines = (
             meals_r.dropna(subset=["cuisine","rating_1_10"])
                    .groupby("cuisine", as_index=False)
