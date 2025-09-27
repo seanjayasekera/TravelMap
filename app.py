@@ -608,7 +608,7 @@ with col1:
         fig_map.update_geos(showcountries=True, showframe=False, landcolor="lightgray", oceancolor="lightblue", showocean=True)
         fig_map.update_layout(margin=dict(l=0,r=0,t=0,b=0), height=450, template="simple_white")
         st.plotly_chart(fig_map, use_container_width=True, config=PLOTLY_CONFIG)
-        add_download(fig_map, "map_USD.png", key="dl_map")
+        add_download(fig_map, "map.png", key="dl_map")
     else:
         st.info("No trips yet. Add your first trip in **Add / Manage Data → Add Trip**.")
 
@@ -676,7 +676,7 @@ if {"trip_id","cuisine","rating_1_10"}.issubset(meals.columns) and len(meals) an
     if meals_r.empty:
         st.info("No meals match the current filters.")
     else:
-        # --- Food Ratings table (no meal_id; pretty headers) ---
+        # --- Food Ratings table (no meal_id; pretty headers; $-formatted Cost) ---
         display_cols = [
             "trip_name", "date_str", "cuisine", "restaurant", "dish_name", "rating_1_10", "cost_usd"
         ]
@@ -696,6 +696,13 @@ if {"trip_id","cuisine","rating_1_10"}.issubset(meals.columns) and len(meals) an
             .reset_index(drop=True)
             .rename(columns=display_names)
         )
+
+        # $ formatting for the Cost column
+        if "Cost" in table_df.columns:
+            table_df["Cost"] = pd.to_numeric(table_df["Cost"], errors="coerce").map(
+                lambda v: f"${v:,.2f}" if pd.notnull(v) else ""
+            )
+
         try:
             st.dataframe(table_df, use_container_width=True, hide_index=True)
         except TypeError:
