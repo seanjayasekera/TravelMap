@@ -199,6 +199,7 @@ def empty_trips_df() -> pd.DataFrame:
         "total_cost_usd": pd.Series(dtype="float"),
         "transportation_cost_usd": pd.Series(dtype="float"),
         "accommodation_cost_usd": pd.Series(dtype="float"),
+        "internet_speed_mbps": pd.Series(dtype="float"),
     })
 
 def empty_meals_df() -> pd.DataFrame:
@@ -241,6 +242,7 @@ def template_trips_bytes() -> bytes:
         "total_cost_usd": 2000,
         "transportation_cost_usd": 600,
         "accommodation_cost_usd": 800,
+        "internet_speed_mbps": 45,
     }])
     return df_to_csv_bytes(df)
 
@@ -276,6 +278,9 @@ with st.sidebar.expander("ℹ️ How to use this app"):
 st.sidebar.header("Upload your data (optional)")
 up_trips = st.sidebar.file_uploader("Upload trips.csv", type=["csv"], key="uploader_trips")
 up_meals = st.sidebar.file_uploader("Upload meals.csv", type=["csv"], key="uploader_meals")
+
+st.sidebar.header("Map options")
+color_by_speed = st.sidebar.checkbox("Color markers by internet speed", value=False)
 
 st.sidebar.header("Download Templates")
 st.sidebar.download_button("Download trips.csv template", data=template_trips_bytes(), file_name="trips.csv", mime="text/csv", key="tmpl_trips")
@@ -326,19 +331,29 @@ meals = st.session_state.meals_df.copy()
 # =========================
 #   BASIC SCHEMA (ensure required cols)
 # =========================
-required_trip_cols = {"trip_id","trip_name","start_date","end_date","primary_city","country","lat","lon","total_cost_usd"}
+required_trip_cols = {
+    "trip_id","trip_name","start_date","end_date","primary_city","country","lat","lon","total_cost_usd"
+}
 missing = required_trip_cols - set(trips.columns)
 if missing:
     templ = empty_trips_df()
     for col in missing:
         trips[col] = templ[col]
-    st.session_state.trips_df = trips
-    trips = st.session_state.trips_df
+
+# Ensure optional new column exists
+if "internet_speed_mbps" not in trips.columns:
+    trips["internet_speed_mbps"] = pd.Series(dtype="float")
+
+st.session_state.trips_df = trips
+trips = st.session_state.trips_df
 
 # =========================
 #   DERIVED COLUMNS (safe on empty)
 # =========================
-for col in ["lat", "lon", "total_cost_usd", "transportation_cost_usd", "accommodation_cost_usd"]:
+for col in [
+    "lat", "lon", "total_cost_usd", "transportation_cost_usd",
+    "accommodation_cost_usd", "internet_speed_mbps"
+]:
     if col in trips.columns:
         trips[col] = pd.to_numeric(trips[col], errors="coerce")
 
@@ -408,6 +423,7 @@ with tab_add_trip:
             start_date = st.date_input("Start date *")
         with d2:
             end_date = st.date_input("End date *")
+        internet_speed_mbps = st.number_input("Internet speed (Mbps)", min_value=0.0, step=1.0, help="Optional")
         auto_coords = st.checkbox("Auto-fill coordinates from city & country", value=True)
         submitted = st.form_submit_button("Add trip")
 
@@ -441,6 +457,7 @@ with tab_add_trip:
                 "total_cost_usd": float(total_cost_usd),
                 "transportation_cost_usd": float(transportation_cost_usd),
                 "accommodation_cost_usd": float(accommodation_cost_usd),
+                "internet_speed_mbps": float(internet_speed_mbps) if internet_speed_mbps is not None else None,
             }
             st.session_state.trips_df = pd.concat([cur, pd.DataFrame([new_row])], ignore_index=True)
             st.success(f"Trip “{trip_name}” added!")
@@ -527,7 +544,10 @@ with tab_edit:
 # Refresh working copies and re-compute derived columns after edits
 trips = st.session_state.trips_df.copy()
 meals = st.session_state.meals_df.copy()
-for col in ["lat", "lon", "total_cost_usd", "transportation_cost_usd", "accommodation_cost_usd"]:
+for col in [
+    "lat", "lon", "total_cost_usd", "transportation_cost_usd",
+    "accommodation_cost_usd", "internet_speed_mbps"
+]:
     if col in trips.columns:
         trips[col] = pd.to_numeric(trips[col], errors="coerce")
 trips["start_date"] = pd.to_datetime(trips["start_date"], errors="coerce")
@@ -571,18 +591,23 @@ if len(t) and search:
         search_mask |= t[c].astype(str).str.contains(s, case=False, na=False)
     t = t.loc[search_mask].copy()
 
-# Metrics (with Average Cost/Day)
+# Metrics (with Internet speed)
 total_spend = t["total_cost_usd"].sum() if len(t) else 0
 total_days = t["days"].sum() if len(t) else 0
 avg_cpd_weighted = (total_spend / total_days) if total_days and total_spend else 0
 med_cpd = t["cost_per_day"].median() if len(t) else 0
 
-c1, c2, c3, c4, c5 = st.columns(5)
+avg_speed = t["internet_speed_mbps"].dropna().mean() if "internet_speed_mbps" in t.columns and len(t) else float("nan")
+speed_series = t["internet_speed_mbps"].dropna() if "internet_speed_mbps" in t.columns else pd.Series(dtype="float")
+pct_good = ( (speed_series >= 25).mean()*100 ) if len(speed_series) else float("nan")
+
+c1, c2, c3, c4, c5, c6 = st.columns(6)
 with c1: st.metric("Trips", f"{len(t)}")
 with c2: st.metric("Countries", f"{t['country'].nunique() if len(t) else 0}")
 with c3: st.metric("Total Spend", f"${total_spend:,.0f}")
 with c4: st.metric("Median Cost/Day", f"${med_cpd:,.2f}")
-with c5: st.metric("Average Cost/Day", f"${avg_cpd_weighted:,.2f}")
+with c5: st.metric("Avg Internet Speed", f"{avg_speed:.1f} Mbps" if pd.notnull(avg_speed) else "—")
+with c6: st.metric("Trips ≥25 Mbps", f"{pct_good:.0f}%" if pd.notnull(pct_good) else "—")
 
 st.markdown("---")
 
@@ -594,17 +619,29 @@ col1, col2 = st.columns([1.25, 1])
 with col1:
     st.subheader("🗺️ Where you've been")
     if len(t):
-        fig_map = px.scatter_geo(
-            t, lat="lat", lon="lon", hover_name="trip_name",
-            hover_data={
-                "country": True,
-                "total_cost_usd": True,
-                "days": True,
-                "lat": False, "lon": False
-            },
-            projection="natural earth",
-        )
-        fig_map.update_traces(marker=dict(color="red", size=9, line=dict(width=1, color="black")))
+        hover_data = {
+            "country": True,
+            "total_cost_usd": True,
+            "days": True,
+            "lat": False, "lon": False
+        }
+        if "internet_speed_mbps" in t.columns:
+            hover_data["internet_speed_mbps"] = True
+
+        if color_by_speed and "internet_speed_mbps" in t.columns and t["internet_speed_mbps"].notna().any():
+            fig_map = px.scatter_geo(
+                t, lat="lat", lon="lon", hover_name="trip_name",
+                hover_data=hover_data, projection="natural earth",
+                color="internet_speed_mbps", color_continuous_scale="RdYlGn", range_color=[0, max(50, t["internet_speed_mbps"].max(skipna=True))],
+            )
+            fig_map.update_traces(marker=dict(size=9, line=dict(width=1, color="black")))
+            fig_map.update_coloraxes(colorbar_title="Mbps")
+        else:
+            fig_map = px.scatter_geo(
+                t, lat="lat", lon="lon", hover_name="trip_name",
+                hover_data=hover_data, projection="natural earth",
+            )
+            fig_map.update_traces(marker=dict(color="red", size=9, line=dict(width=1, color="black")))
         fig_map.update_geos(showcountries=True, showframe=False, landcolor="lightgray", oceancolor="lightblue", showocean=True)
         fig_map.update_layout(margin=dict(l=0,r=0,t=0,b=0), height=450, template="simple_white")
         st.plotly_chart(fig_map, use_container_width=True, config=PLOTLY_CONFIG)
@@ -733,7 +770,7 @@ else:
 st.markdown("---")
 
 # =========================
-#   TRANSPORT / FOOD / ACCOM
+#   TRANSPORT / FOOD / ACCOM / INTERNET
 # =========================
 st.subheader("🚗 Transportation spend per trip")
 if "transportation_cost_usd" in t.columns and len(t) and t["transportation_cost_usd"].notna().any():
@@ -791,6 +828,24 @@ if "accommodation_cost_usd" in t.columns and len(t) and t["accommodation_cost_us
     add_download(fig_accom, "accommodation.png", key="dl_accom")
 else:
     st.info("Add trips with accommodation costs to see this chart.")
+
+st.subheader("📶 Internet speed by trip")
+if "internet_speed_mbps" in t.columns and t["internet_speed_mbps"].notna().any():
+    df_net = t.dropna(subset=["internet_speed_mbps"]).sort_values("internet_speed_mbps", ascending=False)
+    fig_net = px.bar(
+        df_net, x="internet_speed_mbps", y="trip_name", orientation="h",
+        labels={"internet_speed_mbps":"Mbps","trip_name":"Trip"},
+        color="internet_speed_mbps", color_continuous_scale="RdYlGn",
+    )
+    if show_labels:
+        fig_net.update_traces(text=df_net["internet_speed_mbps"].map(lambda v: f"{v:,.1f} Mbps"),
+                              textposition="outside", cliponaxis=False)
+    fig_net.update_traces(hovertemplate="<b>%{y}</b><br>%{x:.1f} Mbps<extra></extra>")
+    apply_common_layout(fig_net, height=520)
+    st.plotly_chart(fig_net, use_container_width=True, config=PLOTLY_CONFIG)
+    add_download(fig_net, "internet_speed.png", key="dl_net")
+else:
+    st.info("Add internet speeds on trips to see this chart.")
 
 # =========================
 #   FOOTER
