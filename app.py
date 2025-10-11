@@ -632,7 +632,8 @@ with col1:
             fig_map = px.scatter_geo(
                 t, lat="lat", lon="lon", hover_name="trip_name",
                 hover_data=hover_data, projection="natural earth",
-                color="internet_speed_mbps", color_continuous_scale="RdYlGn", range_color=[0, max(50, t["internet_speed_mbps"].max(skipna=True))],
+                color="internet_speed_mbps", color_continuous_scale="RdYlGn",
+                range_color=[0, max(50, t["internet_speed_mbps"].max(skipna=True))],
             )
             fig_map.update_traces(marker=dict(size=9, line=dict(width=1, color="black")))
             fig_map.update_coloraxes(colorbar_title="Mbps")
@@ -846,6 +847,89 @@ if "internet_speed_mbps" in t.columns and t["internet_speed_mbps"].notna().any()
     add_download(fig_net, "internet_speed.png", key="dl_net")
 else:
     st.info("Add internet speeds on trips to see this chart.")
+
+st.markdown("---")
+
+# =========================
+#   💻 DIGITAL NOMAD INSIGHTS
+# =========================
+st.subheader("💻 Digital Nomad Insights")
+
+if len(t) and "internet_speed_mbps" in t.columns and t["internet_speed_mbps"].notna().any():
+    # Quick Stats
+    spd = t["internet_speed_mbps"].dropna()
+    colA, colB, colC, colD = st.columns(4)
+    with colA: st.metric("Avg Speed", f"{spd.mean():.1f} Mbps")
+    with colB: st.metric("Fastest Trip", f"{spd.max():.1f} Mbps")
+    with colC: st.metric("Slowest Trip", f"{spd.min():.1f} Mbps")
+    with colD: st.metric("Trips ≥50 Mbps", f"{(spd >= 50).sum()}")
+
+    # Average Internet Speed by Country
+    st.write("**Average internet speed by country**")
+    country_speed = (
+        t.dropna(subset=["country","internet_speed_mbps"])
+         .groupby("country", as_index=False)["internet_speed_mbps"]
+         .mean()
+         .rename(columns={"internet_speed_mbps":"avg_speed_mbps"})
+         .sort_values("avg_speed_mbps", ascending=False)
+    )
+    if len(country_speed):
+        fig_country = px.bar(
+            country_speed, x="country", y="avg_speed_mbps",
+            labels={"country":"Country","avg_speed_mbps":"Avg Mbps"},
+            color="avg_speed_mbps", color_continuous_scale="RdYlGn"
+        )
+        if show_labels:
+            fig_country.update_traces(text=country_speed["avg_speed_mbps"].map(lambda v: f"{v:.1f}"),
+                                      textposition="outside", cliponaxis=False)
+        fig_country.update_layout(xaxis_tickangle=-30)
+        apply_common_layout(fig_country)
+        st.plotly_chart(fig_country, use_container_width=True, config=PLOTLY_CONFIG)
+        add_download(fig_country, "country_avg_speed.png", key="dl_country_speed")
+    else:
+        st.info("Add countries with internet speed to see this chart.")
+
+    # Top 5 Remote-Work Destinations (Workability Score)
+    st.write("**Top 5 remote-work destinations (workability score)**")
+    score_df = t.dropna(subset=["internet_speed_mbps", "cost_per_day"]).copy()
+
+    if len(score_df) >= 1:
+        # Min-max for speed (higher better)
+        sp_min, sp_max = score_df["internet_speed_mbps"].min(), score_df["internet_speed_mbps"].max()
+        if sp_max > sp_min:
+            score_df["speed_norm"] = (score_df["internet_speed_mbps"] - sp_min) / (sp_max - sp_min)
+        else:
+            score_df["speed_norm"] = 1.0
+
+        # Affordability via inverse of cost_per_day (lower cost = better)
+        score_df["inv_cost"] = 1.0 / score_df["cost_per_day"].replace(0, pd.NA)
+        score_df["inv_cost"] = score_df["inv_cost"].fillna(score_df["inv_cost"].max() if score_df["inv_cost"].notna().any() else 1.0)
+        cmin, cmax = score_df["inv_cost"].min(), score_df["inv_cost"].max()
+        if cmax > cmin:
+            score_df["afford_norm"] = (score_df["inv_cost"] - cmin) / (cmax - cmin)
+        else:
+            score_df["afford_norm"] = 1.0
+
+        # Weighted score
+        score_df["workability_score"] = 100 * (0.6 * score_df["speed_norm"] + 0.4 * score_df["afford_norm"])
+        top5 = score_df.sort_values("workability_score", ascending=False).head(5)
+
+        fig_work = px.bar(
+            top5, x="workability_score", y="trip_name", orientation="h",
+            labels={"workability_score":"Score","trip_name":"Trip"},
+            color="workability_score", color_continuous_scale="RdYlGn"
+        )
+        if show_labels:
+            fig_work.update_traces(text=top5["workability_score"].map(lambda v: f"{v:.0f}"),
+                                   textposition="outside", cliponaxis=False)
+        fig_work.update_traces(hovertemplate="<b>%{y}</b><br>Score: %{x:.0f}<extra></extra>")
+        apply_common_layout(fig_work, height=420)
+        st.plotly_chart(fig_work, use_container_width=True, config=PLOTLY_CONFIG)
+        add_download(fig_work, "top_remote_work_destinations.png", key="dl_workability")
+    else:
+        st.info("Add both internet speeds and costs per day to rank remote-work destinations.")
+else:
+    st.info("Add trips with internet speeds to see Digital Nomad Insights.")
 
 # =========================
 #   FOOTER

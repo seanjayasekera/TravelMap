@@ -1,11 +1,11 @@
-trip_id,trip_name,start_date,end_date,primary_city,country,lat,lon,total_cost_usd,transportation_cost_usd,accommodation_cost_usd
-1,Tokyo Spring Break,2023-03-15,2023-03-22,Tokyo,Japan,35.6895,139.6917,2000,600,800
-2,Paris Summer Escape,2022-07-05,2022-07-14,Paris,France,48.8566,2.3522,2500,700,1000
-3,New York City Adventure,2021-10-01,2021-10-08,New York,USA,40.7128,-74.006,1800,500,900
-4,Sydney Holiday,2020-12-10,2020-12-20,Sydney,Australia,-33.8688,151.2093,3000,900,1200
-5,Rome Cultural Tour,2019-05-01,2019-05-07,Rome,Italy,41.9028,12.4964,1500,400,600
-6,Bangkok Food Trip,2023-11-01,2023-11-10,Bangkok,Thailand,13.7563,100.5018,1200,300,400
-7,Cape Town Safari,2022-02-10,2022-02-20,Cape Town,South Africa,-33.9249,18.4241,2800,800,1000
-8,Toronto City Break,2021-08-01,2021-08-05,Toronto,Canada,43.6532,-79.3832,1300,350,500
-9,Istanbul Historic Tour,2018-09-12,2018-09-19,Istanbul,Turkey,41.0082,28.9784,1600,450,600
-10,Rio Carnival Experience,2017-02-20,2017-02-28,Rio de Janeiro,Brazil,-22.9068,-43.1729,2200,650,900
+trip_id,trip_name,start_date,end_date,primary_city,country,lat,lon,total_cost_usd,transportation_cost_usd,accommodation_cost_usd,internet_speed_mbps
+1,Tokyo Spring Break,2023-03-15,2023-03-22,Tokyo,Japan,35.6895,139.6917,2000,600,800,45.0
+2,Lisbon Remote Week,2023-06-10,2023-06-17,Lisbon,Portugal,38.7223,-9.1393,1500,300,700,120.5
+3,Mexico City Eats,2023-09-05,2023-09-12,Mexico City,Mexico,19.4326,-99.1332,1100,220,400,35.2
+4,Seoul Autumn,2023-10-08,2023-10-15,Seoul,South Korea,37.5665,126.978,1800,350,750,210.0
+5,Bali Workspace,2024-02-01,2024-02-10,Ubud,Indonesia,-8.5069,115.2625,1300,180,420,18.7
+6,New York Sprint,2024-04-12,2024-04-17,New York,USA,40.7128,-74.006,1700,260,900,160.3
+7,Cape Town Escape,2024-07-03,2024-07-12,Cape Town,South Africa,-33.9249,18.4241,1400,280,520,25.0
+8,Barcelona Summer,2024-08-15,2024-08-22,Barcelona,Spain,41.3874,2.1686,1600,300,650,95.4
+9,Hanoi Food Tour,2025-01-10,2025-01-18,Hanoi,Vietnam,21.0278,105.8342,1200,200,380,32.8
+10,Reykjavík Winter Lights,2025-02-05,2025-02-11,Reykjavík,Iceland,64.1466,-21.9426,2100,450,1000,140.6
