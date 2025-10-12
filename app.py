@@ -423,7 +423,6 @@ with tab_add_trip:
             start_date = st.date_input("Start date *")
         with d2:
             end_date = st.date_input("End date *")
-        internet_speed_mbps = st.number_input("Internet speed (Mbps)", min_value=0.0, step=1.0, help="Optional")
         auto_coords = st.checkbox("Auto-fill coordinates from city & country", value=True)
         submitted = st.form_submit_button("Add trip")
 
@@ -457,7 +456,7 @@ with tab_add_trip:
                 "total_cost_usd": float(total_cost_usd),
                 "transportation_cost_usd": float(transportation_cost_usd),
                 "accommodation_cost_usd": float(accommodation_cost_usd),
-                "internet_speed_mbps": float(internet_speed_mbps) if internet_speed_mbps is not None else None,
+                # NOTE: internet_speed_mbps removed from this form (moved to DN Insights)
             }
             st.session_state.trips_df = pd.concat([cur, pd.DataFrame([new_row])], ignore_index=True)
             st.success(f"Trip “{trip_name}” added!")
@@ -771,7 +770,7 @@ else:
 st.markdown("---")
 
 # =========================
-#   TRANSPORT / FOOD / ACCOM / INTERNET
+#   TRANSPORT / FOOD / ACCOM
 # =========================
 st.subheader("🚗 Transportation spend per trip")
 if "transportation_cost_usd" in t.columns and len(t) and t["transportation_cost_usd"].notna().any():
@@ -830,39 +829,65 @@ if "accommodation_cost_usd" in t.columns and len(t) and t["accommodation_cost_us
 else:
     st.info("Add trips with accommodation costs to see this chart.")
 
-st.subheader("📶 Internet speed by trip")
-if "internet_speed_mbps" in t.columns and t["internet_speed_mbps"].notna().any():
-    df_net = t.dropna(subset=["internet_speed_mbps"]).sort_values("internet_speed_mbps", ascending=False)
-    fig_net = px.bar(
-        df_net, x="internet_speed_mbps", y="trip_name", orientation="h",
-        labels={"internet_speed_mbps":"Mbps","trip_name":"Trip"},
-        color="internet_speed_mbps", color_continuous_scale="RdYlGn",
-    )
-    if show_labels:
-        fig_net.update_traces(text=df_net["internet_speed_mbps"].map(lambda v: f"{v:,.1f} Mbps"),
-                              textposition="outside", cliponaxis=False)
-    fig_net.update_traces(hovertemplate="<b>%{y}</b><br>%{x:.1f} Mbps<extra></extra>")
-    apply_common_layout(fig_net, height=520)
-    st.plotly_chart(fig_net, use_container_width=True, config=PLOTLY_CONFIG)
-    add_download(fig_net, "internet_speed.png", key="dl_net")
-else:
-    st.info("Add internet speeds on trips to see this chart.")
-
 st.markdown("---")
 
 # =========================
 #   💻 DIGITAL NOMAD INSIGHTS
 # =========================
 st.subheader("💻 Digital Nomad Insights")
+st.caption("For travelers who work on the road: track and compare internet reliability across your destinations. "
+           "Add Mbps for each trip here (optional). As a rough guide: 15–25 Mbps = decent calls, 50+ Mbps = great.")
+
+if len(t):
+    # --- Inline form to update/add internet speed for a specific trip ---
+    with st.form("form_set_speed"):
+        colx, coly = st.columns([2, 1])
+        with colx:
+            trip_choices = t.sort_values("start_date")[["trip_id","trip_name"]].copy()
+            trip_choices["label"] = trip_choices["trip_name"] + " (" + trip_choices["trip_id"].astype(str) + ")"
+            sel_label = st.selectbox("Select trip to set internet speed", trip_choices["label"].tolist())
+        with coly:
+            new_speed = st.number_input("Internet speed (Mbps)", min_value=0.0, step=1.0, value=0.0)
+        do_set = st.form_submit_button("Save speed")
+    if do_set:
+        try:
+            row = trip_choices.iloc[[trip_choices["label"].tolist().index(sel_label)]].iloc[0]
+            tid = int(row["trip_id"])
+            idx = st.session_state.trips_df.index[st.session_state.trips_df["trip_id"] == tid]
+            if len(idx):
+                st.session_state.trips_df.loc[idx, "internet_speed_mbps"] = float(new_speed)
+                st.success(f"Saved {new_speed:.1f} Mbps for trip “{row['trip_name']}”.")
+            else:
+                st.warning("Could not locate that trip in the current table.")
+        except Exception:
+            st.error("Failed to save speed. Please try again.")
+
+# Refresh working copy for this section
+t = st.session_state.trips_df.copy()
+if len(t):
+    t["start_date"] = pd.to_datetime(t["start_date"], errors="coerce")
+    t["end_date"] = pd.to_datetime(t["end_date"], errors="coerce")
 
 if len(t) and "internet_speed_mbps" in t.columns and t["internet_speed_mbps"].notna().any():
     # Quick Stats
-    spd = t["internet_speed_mbps"].dropna()
+    spd_all = t["internet_speed_mbps"].dropna()
     colA, colB, colC, colD = st.columns(4)
-    with colA: st.metric("Avg Speed", f"{spd.mean():.1f} Mbps")
-    with colB: st.metric("Fastest Trip", f"{spd.max():.1f} Mbps")
-    with colC: st.metric("Slowest Trip", f"{spd.min():.1f} Mbps")
-    with colD: st.metric("Trips ≥50 Mbps", f"{(spd >= 50).sum()}")
+    with colA: st.metric("Avg Speed", f"{spd_all.mean():.1f} Mbps")
+    with colB: st.metric("Fastest Trip", f"{spd_all.max():.1f} Mbps")
+    with colC: st.metric("Slowest Trip", f"{spd_all.min():.1f} Mbps")
+    with colD: st.metric("Trips ≥50 Mbps", f"{(spd_all >= 50).sum()}")
+
+    # Internet speed by trip (moved here)
+    st.write("**Internet speed by trip**")
+    df_net = t.dropna(subset=["internet_speed_mbps"]).sort_values("internet_speed_mbps", ascending=False)
+    fig_net = px.bar(
+        df_net, x="internet_speed_mbps", y="trip_name", orientation="h",
+        labels={"internet_speed_mbps":"Mbps","trip_name":"Trip"},
+        color="internet_speed_mbps", color_continuous_scale="RdYlGn",
+    )
+    fig_net.update_traces(hovertemplate="<b>%{y}</b><br>%{x:.1f} Mbps<extra></extra>")
+    st.plotly_chart(apply_common_layout(fig_net, height=420), use_container_width=True, config=PLOTLY_CONFIG)
+    add_download(fig_net, "internet_speed.png", key="dl_net_dn")
 
     # Average Internet Speed by Country
     st.write("**Average internet speed by country**")
@@ -879,12 +904,7 @@ if len(t) and "internet_speed_mbps" in t.columns and t["internet_speed_mbps"].no
             labels={"country":"Country","avg_speed_mbps":"Avg Mbps"},
             color="avg_speed_mbps", color_continuous_scale="RdYlGn"
         )
-        if show_labels:
-            fig_country.update_traces(text=country_speed["avg_speed_mbps"].map(lambda v: f"{v:.1f}"),
-                                      textposition="outside", cliponaxis=False)
-        fig_country.update_layout(xaxis_tickangle=-30)
-        apply_common_layout(fig_country)
-        st.plotly_chart(fig_country, use_container_width=True, config=PLOTLY_CONFIG)
+        st.plotly_chart(apply_common_layout(fig_country), use_container_width=True, config=PLOTLY_CONFIG)
         add_download(fig_country, "country_avg_speed.png", key="dl_country_speed")
     else:
         st.info("Add countries with internet speed to see this chart.")
@@ -919,17 +939,12 @@ if len(t) and "internet_speed_mbps" in t.columns and t["internet_speed_mbps"].no
             labels={"workability_score":"Score","trip_name":"Trip"},
             color="workability_score", color_continuous_scale="RdYlGn"
         )
-        if show_labels:
-            fig_work.update_traces(text=top5["workability_score"].map(lambda v: f"{v:.0f}"),
-                                   textposition="outside", cliponaxis=False)
-        fig_work.update_traces(hovertemplate="<b>%{y}</b><br>Score: %{x:.0f}<extra></extra>")
-        apply_common_layout(fig_work, height=420)
-        st.plotly_chart(fig_work, use_container_width=True, config=PLOTLY_CONFIG)
+        st.plotly_chart(apply_common_layout(fig_work, height=400), use_container_width=True, config=PLOTLY_CONFIG)
         add_download(fig_work, "top_remote_work_destinations.png", key="dl_workability")
     else:
         st.info("Add both internet speeds and costs per day to rank remote-work destinations.")
 else:
-    st.info("Add trips with internet speeds to see Digital Nomad Insights.")
+    st.info("Add trips (and optionally internet speeds) to see Digital Nomad Insights.")
 
 # =========================
 #   FOOTER
