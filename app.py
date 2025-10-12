@@ -456,7 +456,7 @@ with tab_add_trip:
                 "total_cost_usd": float(total_cost_usd),
                 "transportation_cost_usd": float(transportation_cost_usd),
                 "accommodation_cost_usd": float(accommodation_cost_usd),
-                # NOTE: internet_speed_mbps removed from this form (moved to DN Insights)
+                # Internet speed moved to Digital Nomad Insights form
             }
             st.session_state.trips_df = pd.concat([cur, pd.DataFrame([new_row])], ignore_index=True)
             st.success(f"Trip “{trip_name}” added!")
@@ -847,7 +847,7 @@ if len(t):
             trip_choices["label"] = trip_choices["trip_name"] + " (" + trip_choices["trip_id"].astype(str) + ")"
             sel_label = st.selectbox("Select trip to set internet speed", trip_choices["label"].tolist())
         with coly:
-            new_speed = st.number_input("Internet speed (Mbps)", min_value=0.0, step=1.0, value=0.0)
+            new_speed = st.number_input("Average Internet Speed (Mbps)", min_value=0.0, step=1.0, value=0.0)
         do_set = st.form_submit_button("Save speed")
     if do_set:
         try:
@@ -877,8 +877,8 @@ if len(t) and "internet_speed_mbps" in t.columns and t["internet_speed_mbps"].no
     with colC: st.metric("Slowest Trip", f"{spd_all.min():.1f} Mbps")
     with colD: st.metric("Trips ≥50 Mbps", f"{(spd_all >= 50).sum()}")
 
-    # Internet speed by trip (moved here)
-    st.write("**Internet speed by trip**")
+    # Average Internet Speed by Trip (moved here & renamed)
+    st.write("**Average Internet Speed by Trip**")
     df_net = t.dropna(subset=["internet_speed_mbps"]).sort_values("internet_speed_mbps", ascending=False)
     fig_net = px.bar(
         df_net, x="internet_speed_mbps", y="trip_name", orientation="h",
