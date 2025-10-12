@@ -1,11 +1,11 @@
-trip_id,trip_name,start_date,end_date,primary_city,country,lat,lon,total_cost_usd,transportation_cost_usd,accommodation_cost_usd,activities_cost_usd,internet_speed_mbps
-1,Tokyo Spring Break,2023-03-15,2023-03-22,Tokyo,Japan,35.6895,139.6917,2000,600,800,250,45
-2,Lisbon Getaway,2023-05-05,2023-05-12,Lisbon,Portugal,38.7223,-9.1393,1800,500,700,300,60
-3,Mexico City Adventure,2023-06-01,2023-06-10,Mexico City,Mexico,19.4326,-99.1332,1500,400,600,250,35
-4,Seoul Summer,2023-07-10,2023-07-20,Seoul,South Korea,37.5665,126.978,2200,700,900,350,120
-5,Bali Retreat,2023-08-01,2023-08-10,Ubud,Indonesia,-8.5069,115.2625,1600,300,700,150,25
-6,New York Escape,2023-09-05,2023-09-12,New York,USA,40.7128,-74.006,2400,800,1000,400,80
-7,Cape Town Journey,2023-10-10,2023-10-20,Cape Town,South Africa,-33.9249,18.4241,1700,400,800,200,40
-8,Barcelona Sojourn,2023-11-01,2023-11-08,Barcelona,Spain,41.3851,2.1734,1900,600,700,250,70
-9,Hanoi Discovery,2023-12-05,2023-12-12,Hanoi,Vietnam,21.0285,105.8542,1400,300,600,150,50
-10,Reykjavik Winter,2024-01-10,2024-01-18,Reykjavik,Iceland,64.1466,-21.9426,2600,900,1000,500,100
+trip_id,trip_name,start_date,end_date,primary_city,country,lat,lon,total_cost_usd,transportation_cost_usd,accommodation_cost_usd,activities_cost_usd,food_cost_usd,internet_speed_mbps
+1,Tokyo Spring Break,2023-03-15,2023-03-22,Tokyo,Japan,35.6895,139.6917,2200,650,820,260,320,80
+2,Lisbon City Lights,2023-05-02,2023-05-10,Lisbon,Portugal,38.7223,-9.1393,1700,420,610,180,240,75
+3,NYC Summer Week,2023-07-12,2023-07-19,New York,USA,40.7128,-74.006,2600,520,1200,350,380,120
+4,Bali Retreat,2023-09-01,2023-09-12,Ubud,Indonesia,-8.5069,115.2625,1450,500,420,180,210,35
+5,Paris in Fall,2023-10-05,2023-10-12,Paris,France,48.8566,2.3522,2300,480,900,300,350,95
+6,Cape Town Escape,2024-01-15,2024-01-24,Cape Town,South Africa,-33.9249,18.4241,1800,620,520,210,220,60
+7,Seoul Food Tour,2024-04-03,2024-04-11,Seoul,South Korea,37.5665,126.978,1900,550,650,230,260,140
+8,Buenos Aires Beats,2024-06-10,2024-06-18,Buenos Aires,Argentina,-34.6037,-58.3816,1600,560,480,170,210,50
+9,Iceland Ring Road,2024-08-20,2024-08-29,Reykjavik,Iceland,64.1466,-21.9426,2700,700,1000,420,350,70
+10,Chiang Mai Calm,2024-11-05,2024-11-15,Chiang Mai,Thailand,18.7883,98.9853,1300,480,360,160,180,45
