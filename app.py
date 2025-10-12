@@ -878,19 +878,7 @@ st.markdown("---")
 # =========================
 st.subheader("💻 Digital Nomad Insights")
 
-# ✔️ Plain-language description restored:
-st.markdown(
-    "**Workability Score**  \n"
-    "A simple indicator for digital nomads that captures how comfortable it is to work from a destination. "
-    "It blends *internet speed* (faster is better) and *affordability* (lower cost per day is better) into one score."
-)
-
-# Formula explanation (kept)
-st.caption(
-    "We normalize each trip’s **internet speed** and **affordability** (1 / cost per day), then combine them.  \n"
-    "**Score = 100 × (0.6 × speed_norm + 0.4 × affordability_norm)**."
-)
-
+# Short helper caption remains at top of section:
 st.caption("Add Mbps for each trip below (optional). As a rough guide: 15–25 Mbps = decent calls, 50+ Mbps = great.")
 
 if len(t):
@@ -959,6 +947,17 @@ if len(t) and "internet_speed_mbps" in t.columns and t["internet_speed_mbps"].no
         add_download(fig_country, "country_avg_speed.png", key="dl_country_speed")
     else:
         st.info("Add countries with internet speed to see this chart.")
+
+    # >>> Move the explanation RIGHT ABOVE the Workability Score visual <<<
+    st.markdown(
+        "**Workability Score**  \n"
+        "A simple indicator for digital nomads that captures how comfortable it is to work from a destination. "
+        "It blends *internet speed* (faster is better) and *affordability* (lower cost per day is better) into one score."
+    )
+    st.caption(
+        "We normalize each trip’s **internet speed** and **affordability** (1 / cost per day), then combine them.  \n"
+        "**Score = 100 × (0.6 × speed_norm + 0.4 × affordability_norm)**."
+    )
 
     st.write("**Top 5 remote-work destinations (workability score)**")
     score_df = t.dropna(subset=["internet_speed_mbps", "cost_per_day"]).copy()
