@@ -199,6 +199,7 @@ def empty_trips_df() -> pd.DataFrame:
         "total_cost_usd": pd.Series(dtype="float"),
         "transportation_cost_usd": pd.Series(dtype="float"),
         "accommodation_cost_usd": pd.Series(dtype="float"),
+        "activities_cost_usd": pd.Series(dtype="float"),   # NEW
         "internet_speed_mbps": pd.Series(dtype="float"),
     })
 
@@ -242,6 +243,7 @@ def template_trips_bytes() -> bytes:
         "total_cost_usd": 2000,
         "transportation_cost_usd": 600,
         "accommodation_cost_usd": 800,
+        "activities_cost_usd": 250,        # NEW
         "internet_speed_mbps": 45,
     }])
     return df_to_csv_bytes(df)
@@ -340,9 +342,10 @@ if missing:
     for col in missing:
         trips[col] = templ[col]
 
-# Ensure optional new column exists
-if "internet_speed_mbps" not in trips.columns:
-    trips["internet_speed_mbps"] = pd.Series(dtype="float")
+# Ensure optional new columns exist
+for col in ["internet_speed_mbps", "activities_cost_usd"]:
+    if col not in trips.columns:
+        trips[col] = pd.Series(dtype="float")
 
 st.session_state.trips_df = trips
 trips = st.session_state.trips_df
@@ -352,7 +355,7 @@ trips = st.session_state.trips_df
 # =========================
 for col in [
     "lat", "lon", "total_cost_usd", "transportation_cost_usd",
-    "accommodation_cost_usd", "internet_speed_mbps"
+    "accommodation_cost_usd", "activities_cost_usd", "internet_speed_mbps"
 ]:
     if col in trips.columns:
         trips[col] = pd.to_numeric(trips[col], errors="coerce")
@@ -418,6 +421,9 @@ with tab_add_trip:
             total_cost_usd = st.number_input("Total cost *", min_value=0.0, step=10.0)
             transportation_cost_usd = st.number_input("Transportation cost", min_value=0.0, step=5.0, value=0.0)
             accommodation_cost_usd = st.number_input("Accommodation cost", min_value=0.0, step=5.0, value=0.0)
+        c3 = st.columns(1)[0]
+        with c3:
+            activities_cost_usd = st.number_input("Activities cost", min_value=0.0, step=5.0, value=0.0)  # NEW
         d1, d2 = st.columns(2)
         with d1:
             start_date = st.date_input("Start date *")
@@ -456,7 +462,8 @@ with tab_add_trip:
                 "total_cost_usd": float(total_cost_usd),
                 "transportation_cost_usd": float(transportation_cost_usd),
                 "accommodation_cost_usd": float(accommodation_cost_usd),
-                # Internet speed moved to Digital Nomad Insights form
+                "activities_cost_usd": float(activities_cost_usd),  # NEW
+                # Internet speed managed in Digital Nomad Insights
             }
             st.session_state.trips_df = pd.concat([cur, pd.DataFrame([new_row])], ignore_index=True)
             st.success(f"Trip “{trip_name}” added!")
@@ -545,7 +552,7 @@ trips = st.session_state.trips_df.copy()
 meals = st.session_state.meals_df.copy()
 for col in [
     "lat", "lon", "total_cost_usd", "transportation_cost_usd",
-    "accommodation_cost_usd", "internet_speed_mbps"
+    "accommodation_cost_usd", "activities_cost_usd", "internet_speed_mbps"
 ]:
     if col in trips.columns:
         trips[col] = pd.to_numeric(trips[col], errors="coerce")
@@ -770,7 +777,7 @@ else:
 st.markdown("---")
 
 # =========================
-#   TRANSPORT / FOOD / ACCOM
+#   TRANSPORT / FOOD / ACCOM / ACTIVITIES
 # =========================
 st.subheader("🚗 Transportation spend per trip")
 if "transportation_cost_usd" in t.columns and len(t) and t["transportation_cost_usd"].notna().any():
@@ -829,6 +836,25 @@ if "accommodation_cost_usd" in t.columns and len(t) and t["accommodation_cost_us
 else:
     st.info("Add trips with accommodation costs to see this chart.")
 
+st.subheader("🎟️ Activities spend per trip")  # NEW
+if "activities_cost_usd" in t.columns and len(t) and t["activities_cost_usd"].notna().any():
+    df_act = t.sort_values("start_date")
+    fig_activities = px.bar(
+        df_act, x="trip_name", y="activities_cost_usd",
+        labels={"trip_name":"Trip","activities_cost_usd":"Amount"},
+        color="activities_cost_usd", color_continuous_scale="Sunset",
+    )
+    if show_labels:
+        fig_activities.update_traces(text=df_act["activities_cost_usd"].fillna(0).map(lambda v: f"${v:,.0f}"),
+                                     textposition="outside", cliponaxis=False)
+    fig_activities.update_traces(hovertemplate="<b>%{x}</b><br>%{y:,.0f}<extra></extra>")
+    fig_activities.update_layout(xaxis_tickangle=-20)
+    apply_common_layout(fig_activities)
+    st.plotly_chart(fig_activities, use_container_width=True, config=PLOTLY_CONFIG)
+    add_download(fig_activities, "activities_spend.png", key="dl_activities")
+else:
+    st.info("Add trips with activities costs to see this chart.")
+
 st.markdown("---")
 
 # =========================
@@ -877,7 +903,7 @@ if len(t) and "internet_speed_mbps" in t.columns and t["internet_speed_mbps"].no
     with colC: st.metric("Slowest Trip", f"{spd_all.min():.1f} Mbps")
     with colD: st.metric("Trips ≥50 Mbps", f"{(spd_all >= 50).sum()}")
 
-    # Average Internet Speed by Trip (moved here & renamed)
+    # Average Internet Speed by Trip
     st.write("**Average Internet Speed by Trip**")
     df_net = t.dropna(subset=["internet_speed_mbps"]).sort_values("internet_speed_mbps", ascending=False)
     fig_net = px.bar(
