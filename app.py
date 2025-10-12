@@ -199,7 +199,8 @@ def empty_trips_df() -> pd.DataFrame:
         "total_cost_usd": pd.Series(dtype="float"),
         "transportation_cost_usd": pd.Series(dtype="float"),
         "accommodation_cost_usd": pd.Series(dtype="float"),
-        "activities_cost_usd": pd.Series(dtype="float"),   # NEW
+        "activities_cost_usd": pd.Series(dtype="float"),
+        "food_cost_usd": pd.Series(dtype="float"),          # NEW: manual total meal cost per trip
         "internet_speed_mbps": pd.Series(dtype="float"),
     })
 
@@ -243,7 +244,8 @@ def template_trips_bytes() -> bytes:
         "total_cost_usd": 2000,
         "transportation_cost_usd": 600,
         "accommodation_cost_usd": 800,
-        "activities_cost_usd": 250,        # NEW
+        "activities_cost_usd": 250,
+        "food_cost_usd": 300,                 # NEW: manual trip total for meals
         "internet_speed_mbps": 45,
     }])
     return df_to_csv_bytes(df)
@@ -342,8 +344,8 @@ if missing:
     for col in missing:
         trips[col] = templ[col]
 
-# Ensure optional new columns exist
-for col in ["internet_speed_mbps", "activities_cost_usd"]:
+# Ensure optional columns exist
+for col in ["internet_speed_mbps", "activities_cost_usd", "food_cost_usd"]:
     if col not in trips.columns:
         trips[col] = pd.Series(dtype="float")
 
@@ -355,7 +357,7 @@ trips = st.session_state.trips_df
 # =========================
 for col in [
     "lat", "lon", "total_cost_usd", "transportation_cost_usd",
-    "accommodation_cost_usd", "activities_cost_usd", "internet_speed_mbps"
+    "accommodation_cost_usd", "activities_cost_usd", "food_cost_usd", "internet_speed_mbps"
 ]:
     if col in trips.columns:
         trips[col] = pd.to_numeric(trips[col], errors="coerce")
@@ -372,19 +374,24 @@ trips["cost_per_day"] = (
     trips["days"].replace({0: 1})
 ).round(2)
 
-# Compute food per trip from meals if present
+# --- FOOD COST: combine manual (trips.csv) and sum(meals.csv) ---
 if {"trip_id", "cost_usd"}.issubset(meals.columns) and len(meals):
     meals = meals.copy()
     meals["cost_usd"] = pd.to_numeric(meals["cost_usd"], errors="coerce").fillna(0)
     meals["trip_id"] = pd.to_numeric(meals["trip_id"], errors="coerce").astype("Int64")
-    food_by_trip = meals.groupby("trip_id", dropna=False)["cost_usd"].sum().rename("food_cost_usd")
-    trips = trips.drop(columns=[c for c in trips.columns if c.startswith("food_cost_usd")], errors="ignore")
-    trips = trips.merge(food_by_trip, how="left", left_on="trip_id", right_index=True)
+    # Sum of meal costs per trip from meals.csv
+    food_from_meals = meals.groupby("trip_id", dropna=False)["cost_usd"].sum().rename("food_cost_usd_from_meals")
+    # Merge without dropping existing manual column
+    trips = trips.merge(food_from_meals, how="left", left_on="trip_id", right_index=True)
 else:
-    if "food_cost_usd" not in trips.columns:
-        trips["food_cost_usd"] = 0
+    trips["food_cost_usd_from_meals"] = pd.Series(dtype="float")
 
-trips["food_cost_usd"] = pd.to_numeric(trips["food_cost_usd"], errors="coerce").fillna(0).clip(lower=0)
+# Final food cost: prefer meals.csv sum when available; else manual trip field
+trips["food_cost_usd"] = pd.to_numeric(trips.get("food_cost_usd"), errors="coerce")
+trips["food_cost_usd_final"] = (
+    trips["food_cost_usd_from_meals"].where(trips["food_cost_usd_from_meals"].notna(), trips["food_cost_usd"])
+).fillna(0).clip(lower=0)
+
 trips["year"] = year_series(pd.to_datetime(trips["start_date"], errors="coerce"))
 
 # Write back (post-derivations)
@@ -423,7 +430,8 @@ with tab_add_trip:
             accommodation_cost_usd = st.number_input("Accommodation cost", min_value=0.0, step=5.0, value=0.0)
         c3 = st.columns(1)[0]
         with c3:
-            activities_cost_usd = st.number_input("Activities cost", min_value=0.0, step=5.0, value=0.0)  # NEW
+            meal_cost_total_usd = st.number_input("Meal cost (trip total)", min_value=0.0, step=5.0, value=0.0)  # NEW
+            activities_cost_usd = st.number_input("Activities cost", min_value=0.0, step=5.0, value=0.0)
         d1, d2 = st.columns(2)
         with d1:
             start_date = st.date_input("Start date *")
@@ -462,8 +470,8 @@ with tab_add_trip:
                 "total_cost_usd": float(total_cost_usd),
                 "transportation_cost_usd": float(transportation_cost_usd),
                 "accommodation_cost_usd": float(accommodation_cost_usd),
-                "activities_cost_usd": float(activities_cost_usd),  # NEW
-                # Internet speed managed in Digital Nomad Insights
+                "activities_cost_usd": float(activities_cost_usd),
+                "food_cost_usd": float(meal_cost_total_usd),   # NEW: manual trip-level total meals
             }
             st.session_state.trips_df = pd.concat([cur, pd.DataFrame([new_row])], ignore_index=True)
             st.success(f"Trip “{trip_name}” added!")
@@ -507,7 +515,7 @@ with tab_add_meal:
                         "cuisine": cuisine,
                         "restaurant": restaurant,
                         "dish_name": dish_name,
-                        "cost_usd": float(cost_usd),   # stored in USD
+                        "cost_usd": float(cost_usd),
                         "rating_1_10": int(rating_1_10),
                         "date": pd.to_datetime(date),
                     }
@@ -552,7 +560,7 @@ trips = st.session_state.trips_df.copy()
 meals = st.session_state.meals_df.copy()
 for col in [
     "lat", "lon", "total_cost_usd", "transportation_cost_usd",
-    "accommodation_cost_usd", "activities_cost_usd", "internet_speed_mbps"
+    "accommodation_cost_usd", "activities_cost_usd", "food_cost_usd", "internet_speed_mbps"
 ]:
     if col in trips.columns:
         trips[col] = pd.to_numeric(trips[col], errors="coerce")
@@ -566,14 +574,28 @@ trips["cost_per_day"] = (
     pd.to_numeric(trips.get("total_cost_usd", pd.Series(dtype="float")), errors="coerce").fillna(0) /
     trips["days"].replace({0: 1})
 ).round(2)
+
+# Recompute food_from_meals and final after edits
 if {"trip_id", "cost_usd"}.issubset(meals.columns) and len(meals):
     meals["cost_usd"] = pd.to_numeric(meals["cost_usd"], errors="coerce").fillna(0)
     meals["trip_id"] = pd.to_numeric(meals["trip_id"], errors="coerce").astype("Int64")
-    food_by_trip = meals.groupby("trip_id", dropna=False)["cost_usd"].sum().rename("food_cost_usd")
-    trips = trips.drop(columns=[c for c in trips.columns if c.startswith("food_cost_usd")], errors="ignore")
-    trips = trips.merge(food_by_trip, how="left", left_on="trip_id", right_index=True)
-trips["food_cost_usd"] = pd.to_numeric(trips["food_cost_usd"], errors="coerce").fillna(0).clip(lower=0)
+    food_from_meals = meals.groupby("trip_id", dropna=False)["cost_usd"].sum().rename("food_cost_usd_from_meals")
+    trips = trips.drop(columns=["food_cost_usd_from_meals"], errors="ignore").merge(
+        food_from_meals, how="left", left_on="trip_id", right_index=True
+    )
+else:
+    trips["food_cost_usd_from_meals"] = trips.get("food_cost_usd_from_meals", pd.Series(dtype="float"))
+
+trips["food_cost_usd"] = pd.to_numeric(trips.get("food_cost_usd"), errors="coerce")
+trips["food_cost_usd_final"] = (
+    trips["food_cost_usd_from_meals"].where(trips["food_cost_usd_from_meals"].notna(), trips["food_cost_usd"])
+).fillna(0).clip(lower=0)
+
 trips["year"] = year_series(pd.to_datetime(trips["start_date"], errors="coerce"))
+
+# Write back
+st.session_state.trips_df = trips
+st.session_state.meals_df = meals
 
 # =========================
 #   FILTERS & METRICS
@@ -582,4 +604,394 @@ st.markdown("---")
 st.sidebar.header("Filters")
 countries = sorted(trips["country"].dropna().unique().tolist()) if len(trips) else []
 years = sorted(trips["year"].dropna().unique().tolist()) if len(trips) else []
-sel_countries = st.sidebar.mult
+sel_countries = st.sidebar.multiselect("Country", countries, default=countries)
+sel_years = st.sidebar.multiselect("Year", years, default=years)
+search = st.sidebar.text_input("Search trips/cities", placeholder="e.g., Tokyo")
+show_labels = st.sidebar.checkbox("Show values on bars", value=True)
+sort_by = st.sidebar.selectbox("Sort bars by", ["Start date", "Trip name", "Value"], index=0)
+
+mask = trips["country"].isin(sel_countries) & trips["year"].isin(sel_years) if len(trips) else pd.Series([], dtype=bool)
+t = trips.loc[mask].copy() if len(trips) else trips
+if len(t) and search:
+    s = search.strip()
+    search_mask = pd.Series(False, index=t.index)
+    for c in ["trip_name", "primary_city"]:
+        search_mask |= t[c].astype(str).str.contains(s, case=False, na=False)
+    t = t.loc[search_mask].copy()
+
+# Metrics (with Internet speed)
+total_spend = t["total_cost_usd"].sum() if len(t) else 0
+total_days = t["days"].sum() if len(t) else 0
+avg_cpd_weighted = (total_spend / total_days) if total_days and total_spend else 0
+med_cpd = t["cost_per_day"].median() if len(t) else 0
+
+avg_speed = t["internet_speed_mbps"].dropna().mean() if "internet_speed_mbps" in t.columns and len(t) else float("nan")
+speed_series = t["internet_speed_mbps"].dropna() if "internet_speed_mbps" in t.columns else pd.Series(dtype="float")
+pct_good = ( (speed_series >= 25).mean()*100 ) if len(speed_series) else float("nan")
+
+c1, c2, c3, c4, c5, c6 = st.columns(6)
+with c1: st.metric("Trips", f"{len(t)}")
+with c2: st.metric("Countries", f"{t['country'].nunique() if len(t) else 0}")
+with c3: st.metric("Total Spend", f"${total_spend:,.0f}")
+with c4: st.metric("Median Cost/Day", f"${med_cpd:,.2f}")
+with c5: st.metric("Avg Internet Speed", f"{avg_speed:.1f} Mbps" if pd.notnull(avg_speed) else "—")
+with c6: st.metric("Trips ≥25 Mbps", f"{pct_good:.0f}%" if pd.notnull(pct_good) else "—")
+
+st.markdown("---")
+
+# =========================
+#   MAP + TOTAL SPEND
+# =========================
+col1, col2 = st.columns([1.25, 1])
+
+with col1:
+    st.subheader("🗺️ Where you've been")
+    if len(t):
+        hover_data = {
+            "country": True,
+            "total_cost_usd": True,
+            "days": True,
+            "lat": False, "lon": False
+        }
+        if "internet_speed_mbps" in t.columns:
+            hover_data["internet_speed_mbps"] = True
+
+        if color_by_speed and "internet_speed_mbps" in t.columns and t["internet_speed_mbps"].notna().any():
+            fig_map = px.scatter_geo(
+                t, lat="lat", lon="lon", hover_name="trip_name",
+                hover_data=hover_data, projection="natural earth",
+                color="internet_speed_mbps", color_continuous_scale="RdYlGn",
+                range_color=[0, max(50, t["internet_speed_mbps"].max(skipna=True))],
+            )
+            fig_map.update_traces(marker=dict(size=9, line=dict(width=1, color="black")))
+            fig_map.update_coloraxes(colorbar_title="Mbps")
+        else:
+            fig_map = px.scatter_geo(
+                t, lat="lat", lon="lon", hover_name="trip_name",
+                hover_data=hover_data, projection="natural earth",
+            )
+            fig_map.update_traces(marker=dict(color="red", size=9, line=dict(width=1, color="black")))
+        fig_map.update_geos(showcountries=True, showframe=False, landcolor="lightgray", oceancolor="lightblue", showocean=True)
+        fig_map.update_layout(margin=dict(l=0,r=0,t=0,b=0), height=450, template="simple_white")
+        st.plotly_chart(fig_map, use_container_width=True, config=PLOTLY_CONFIG)
+        add_download(fig_map, "map.png", key="dl_map")
+    else:
+        st.info("No trips yet. Add your first trip in **Add / Manage Data → Add Trip**.")
+
+with col2:
+    st.subheader("💵 Total spend per trip")
+    if len(t):
+        if sort_by == "Start date":
+            df_total = t.sort_values("start_date")
+        elif sort_by == "Trip name":
+            df_total = t.sort_values("trip_name")
+        else:
+            df_total = t.sort_values("total_cost_usd", ascending=False)
+        fig_cost = px.bar(
+            df_total, x="trip_name", y="total_cost_usd",
+            labels={"trip_name": "Trip", "total_cost_usd": "Amount"},
+            color="total_cost_usd", color_continuous_scale="Tealgrn",
+        )
+        if show_labels:
+            fig_cost.update_traces(text=df_total["total_cost_usd"].map(lambda v: f"${v:,.0f}"),
+                                   textposition="outside", cliponaxis=False)
+        fig_cost.update_traces(hovertemplate="<b>%{x}</b><br>%{y:,.0f}<extra></extra>")
+        fig_cost.update_layout(xaxis_tickangle=-20)
+        apply_common_layout(fig_cost, height=450)
+        st.plotly_chart(fig_cost, use_container_width=True, config=PLOTLY_CONFIG)
+        add_download(fig_cost, "total_spend.png", key="dl_total")
+    else:
+        st.info("Add some trips to see spending charts.")
+
+st.markdown("---")
+
+# =========================
+#   COST PER DAY
+# =========================
+st.subheader("🏆 Cost per day leaderboard")
+if len(t):
+    df_cpd = t.sort_values("cost_per_day", ascending=True).copy()
+    fig_cpd = px.bar(
+        df_cpd, x="cost_per_day", y="trip_name", orientation="h",
+        labels={"cost_per_day": "Per day", "trip_name": "Trip"},
+        color="cost_per_day", color_continuous_scale="Blugrn",
+    )
+    if show_labels:
+        fig_cpd.update_traces(text=df_cpd["cost_per_day"].map(lambda v: f"${v:,.2f}"),
+                              textposition="outside", cliponaxis=False)
+    fig_cpd.update_traces(hovertemplate="<b>%{y}</b><br>%{x:,.2f}<extra></extra>")
+    apply_common_layout(fig_cpd, height=520)
+    st.plotly_chart(fig_cpd, use_container_width=True, config=PLOTLY_CONFIG)
+    add_download(fig_cpd, "cost_per_day.png", key="dl_cpd")
+else:
+    st.info("Add some trips to see the cost-per-day leaderboard.")
+
+st.markdown("---")
+
+# =========================
+#   FOOD RATINGS (table + cuisine chart)
+# =========================
+st.subheader("🍴 Food Ratings")
+if {"trip_id","cuisine","rating_1_10"}.issubset(meals.columns) and len(meals) and len(t):
+    meals_r = meals.copy()
+    if "date" in meals_r.columns:
+        meals_r["date_str"] = pd.to_datetime(meals_r["date"], errors="coerce").dt.strftime("%Y-%m-%d")
+    meals_r = meals_r[meals_r["trip_id"].isin(t["trip_id"])]
+    meals_r = meals_r.merge(t[["trip_id", "trip_name"]], how="left", on="trip_id")
+
+    if meals_r.empty:
+        st.info("No meals match the current filters.")
+    else:
+        display_cols = [
+            "trip_name", "date_str", "cuisine", "restaurant", "dish_name", "rating_1_10", "cost_usd"
+        ]
+        display_cols = [c for c in display_cols if c in meals_r.columns]
+        display_names = {
+            "trip_name": "Trip",
+            "date_str": "Date",
+            "cuisine": "Cuisine",
+            "restaurant": "Restaurant",
+            "dish_name": "Dish Name",
+            "rating_1_10": "Rating",
+            "cost_usd": "Cost",
+        }
+        table_df = (
+            meals_r[display_cols]
+            .sort_values(["trip_name", "date_str"])
+            .reset_index(drop=True)
+            .rename(columns=display_names)
+        )
+        if "Cost" in table_df.columns:
+            table_df["Cost"] = pd.to_numeric(table_df["Cost"], errors="coerce").map(
+                lambda v: f"${v:,.2f}" if pd.notnull(v) else ""
+            )
+
+        try:
+            st.dataframe(table_df, use_container_width=True, hide_index=True)
+        except TypeError:
+            st.dataframe(table_df, use_container_width=True)
+
+        top_cuisines = (
+            meals_r.dropna(subset=["cuisine","rating_1_10"])
+                   .groupby("cuisine", as_index=False)
+                   .agg(avg_rating=("rating_1_10","mean"), count=("rating_1_10","size"))
+                   .sort_values(["avg_rating","count"], ascending=[False,False])
+        )
+        fig_cuisine = px.bar(
+            top_cuisines, x="cuisine", y="avg_rating",
+            hover_data=["count"], labels={"avg_rating":"Avg Rating"},
+            color="avg_rating", color_continuous_scale="Viridis", range_y=[0,10],
+        )
+        if show_labels:
+            fig_cuisine.update_traces(text=top_cuisines["avg_rating"].map(lambda v: f"{v:.1f}"),
+                                      textposition="outside", cliponaxis=False)
+        fig_cuisine.update_layout(xaxis_tickangle=-30)
+        apply_common_layout(fig_cuisine)
+        st.plotly_chart(fig_cuisine, use_container_width=True, config=PLOTLY_CONFIG)
+        add_download(fig_cuisine, "food_ratings_cuisines.png", key="dl_cuisine")
+else:
+    st.info("Add meals (and at least one trip) to see Food Ratings.")
+
+st.markdown("---")
+
+# =========================
+#   TRANSPORT / FOOD / ACCOM / ACTIVITIES
+# =========================
+st.subheader("🚗 Transportation spend per trip")
+if "transportation_cost_usd" in t.columns and len(t) and t["transportation_cost_usd"].notna().any():
+    df_tr = t.sort_values("start_date")
+    fig_transport = px.bar(
+        df_tr, x="trip_name", y="transportation_cost_usd",
+        labels={"trip_name":"Trip","transportation_cost_usd":"Amount"},
+        color="transportation_cost_usd", color_continuous_scale="Tealgrn",
+    )
+    if show_labels:
+        fig_transport.update_traces(text=df_tr["transportation_cost_usd"].fillna(0).map(lambda v: f"${v:,.0f}"),
+                                    textposition="outside", cliponaxis=False)
+    fig_transport.update_traces(hovertemplate="<b>%{x}</b><br>%{y:,.0f}<extra></extra>")
+    fig_transport.update_layout(xaxis_tickangle=-20)
+    apply_common_layout(fig_transport)
+    st.plotly_chart(fig_transport, use_container_width=True, config=PLOTLY_CONFIG)
+    add_download(fig_transport, "transportation.png", key="dl_transport")
+else:
+    st.info("Add trips with transportation costs to see this chart.")
+
+st.subheader("🍜 Food spend per trip")
+if "food_cost_usd_final" in t.columns and len(t):
+    df_food = t.sort_values("start_date")
+    fig_food = px.bar(
+        df_food, x="trip_name", y="food_cost_usd_final",
+        labels={"trip_name":"Trip","food_cost_usd_final":"Amount"},
+        color="food_cost_usd_final", color_continuous_scale="Viridis",
+    )
+    if show_labels:
+        fig_food.update_traces(text=df_food["food_cost_usd_final"].map(lambda v: f"${v:,.0f}"),
+                               textposition="outside", cliponaxis=False)
+    fig_food.update_traces(hovertemplate="<b>%{x}</b><br>%{y:,.0f}<extra></extra>")
+    fig_food.update_layout(xaxis_tickangle=-20)
+    apply_common_layout(fig_food)
+    st.plotly_chart(fig_food, use_container_width=True, config=PLOTLY_CONFIG)
+    add_download(fig_food, "food_spend.png", key="dl_food")
+else:
+    st.info("Add meals or a manual trip meal cost to see food totals per trip.")
+
+st.subheader("🏨 Accommodation spend per trip")
+if "accommodation_cost_usd" in t.columns and len(t) and t["accommodation_cost_usd"].notna().any():
+    df_ac = t.sort_values("start_date")
+    fig_accom = px.bar(
+        df_ac, x="trip_name", y="accommodation_cost_usd",
+        labels={"trip_name":"Trip","accommodation_cost_usd":"Amount"},
+        color="accommodation_cost_usd", color_continuous_scale="Purples",
+    )
+    if show_labels:
+        fig_accom.update_traces(text=df_ac["accommodation_cost_usd"].fillna(0).map(lambda v: f"${v:,.0f}"),
+                                textposition="outside", cliponaxis=False)
+    fig_accom.update_traces(hovertemplate="<b>%{x}</b><br>%{y:,.0f}<extra></extra>")
+    fig_accom.update_layout(xaxis_tickangle=-20)
+    apply_common_layout(fig_accom)
+    st.plotly_chart(fig_accom, use_container_width=True, config=PLOTLY_CONFIG)
+    add_download(fig_accom, "accommodation.png", key="dl_accom")
+else:
+    st.info("Add trips with accommodation costs to see this chart.")
+
+st.subheader("🎟️ Activities spend per trip")
+if "activities_cost_usd" in t.columns and len(t) and t["activities_cost_usd"].notna().any():
+    df_act = t.sort_values("start_date")
+    fig_activities = px.bar(
+        df_act, x="trip_name", y="activities_cost_usd",
+        labels={"trip_name":"Trip","activities_cost_usd":"Amount"},
+        color="activities_cost_usd", color_continuous_scale="Sunset",
+    )
+    if show_labels:
+        fig_activities.update_traces(text=df_act["activities_cost_usd"].fillna(0).map(lambda v: f"${v:,.0f}"),
+                                     textposition="outside", cliponaxis=False)
+    fig_activities.update_traces(hovertemplate="<b>%{x}</b><br>%{y:,.0f}<extra></extra>")
+    fig_activities.update_layout(xaxis_tickangle=-20)
+    apply_common_layout(fig_activities)
+    st.plotly_chart(fig_activities, use_container_width=True, config=PLOTLY_CONFIG)
+    add_download(fig_activities, "activities_spend.png", key="dl_activities")
+else:
+    st.info("Add trips with activities costs to see this chart.")
+
+st.markdown("---")
+
+# =========================
+#   💻 DIGITAL NOMAD INSIGHTS
+# =========================
+st.subheader("💻 Digital Nomad Insights")
+st.caption("For travelers who work on the road: track and compare internet reliability across your destinations. "
+           "Add Mbps for each trip here (optional). As a rough guide: 15–25 Mbps = decent calls, 50+ Mbps = great.")
+
+if len(t):
+    with st.form("form_set_speed"):
+        colx, coly = st.columns([2, 1])
+        with colx:
+            trip_choices = t.sort_values("start_date")[["trip_id","trip_name"]].copy()
+            trip_choices["label"] = trip_choices["trip_name"] + " (" + trip_choices["trip_id"].astype(str) + ")"
+            sel_label = st.selectbox("Select trip to set internet speed", trip_choices["label"].tolist())
+        with coly:
+            new_speed = st.number_input("Average Internet Speed (Mbps)", min_value=0.0, step=1.0, value=0.0)
+        do_set = st.form_submit_button("Save speed")
+    if do_set:
+        try:
+            row = trip_choices.iloc[[trip_choices["label"].tolist().index(sel_label)]].iloc[0]
+            tid = int(row["trip_id"])
+            idx = st.session_state.trips_df.index[st.session_state.trips_df["trip_id"] == tid]
+            if len(idx):
+                st.session_state.trips_df.loc[idx, "internet_speed_mbps"] = float(new_speed)
+                st.success(f"Saved {new_speed:.1f} Mbps for trip “{row['trip_name']}”.")
+            else:
+                st.warning("Could not locate that trip in the current table.")
+        except Exception:
+            st.error("Failed to save speed. Please try again.")
+
+# Refresh working copy for this section
+t = st.session_state.trips_df.copy()
+if len(t):
+    t["start_date"] = pd.to_datetime(t["start_date"], errors="coerce")
+    t["end_date"] = pd.to_datetime(t["end_date"], errors="coerce")
+
+if len(t) and "internet_speed_mbps" in t.columns and t["internet_speed_mbps"].notna().any():
+    spd_all = t["internet_speed_mbps"].dropna()
+    colA, colB, colC, colD = st.columns(4)
+    with colA: st.metric("Avg Speed", f"{spd_all.mean():.1f} Mbps")
+    with colB: st.metric("Fastest Trip", f"{spd_all.max():.1f} Mbps")
+    with colC: st.metric("Slowest Trip", f"{spd_all.min():.1f} Mbps")
+    with colD: st.metric("Trips ≥50 Mbps", f"{(spd_all >= 50).sum()}")
+
+    st.write("**Average Internet Speed by Trip**")
+    df_net = t.dropna(subset=["internet_speed_mbps"]).sort_values("internet_speed_mbps", ascending=False)
+    fig_net = px.bar(
+        df_net, x="internet_speed_mbps", y="trip_name", orientation="h",
+        labels={"internet_speed_mbps":"Mbps","trip_name":"Trip"},
+        color="internet_speed_mbps", color_continuous_scale="RdYlGn",
+    )
+    fig_net.update_traces(hovertemplate="<b>%{y}</b><br>%{x:.1f} Mbps<extra></extra>")
+    st.plotly_chart(apply_common_layout(fig_net, height=420), use_container_width=True, config=PLOTLY_CONFIG)
+    add_download(fig_net, "internet_speed.png", key="dl_net_dn")
+
+    st.write("**Average internet speed by country**")
+    country_speed = (
+        t.dropna(subset=["country","internet_speed_mbps"])
+         .groupby("country", as_index=False)["internet_speed_mbps"]
+         .mean()
+         .rename(columns={"internet_speed_mbps":"avg_speed_mbps"})
+         .sort_values("avg_speed_mbps", ascending=False)
+    )
+    if len(country_speed):
+        fig_country = px.bar(
+            country_speed, x="country", y="avg_speed_mbps",
+            labels={"country":"Country","avg_speed_mbps":"Avg Mbps"},
+            color="avg_speed_mbps", color_continuous_scale="RdYlGn"
+        )
+        st.plotly_chart(apply_common_layout(fig_country), use_container_width=True, config=PLOTLY_CONFIG)
+        add_download(fig_country, "country_avg_speed.png", key="dl_country_speed")
+    else:
+        st.info("Add countries with internet speed to see this chart.")
+
+    st.write("**Top 5 remote-work destinations (workability score)**")
+    st.caption(
+        "The workability score ranks destinations for remote work based on a blend of speed and affordability. "
+        "We normalize each trip’s **internet speed** (higher is better) and **affordability** "
+        "(computed as the inverse of cost per day, so lower cost = better), then combine them:  \n"
+        "**Score = 100 × (0.6 × speed_norm + 0.4 × affordability_norm)**.  "
+        "Use this as a directional guide, not an absolute truth."
+    )
+
+    score_df = t.dropna(subset=["internet_speed_mbps", "cost_per_day"]).copy()
+
+    if len(score_df) >= 1:
+        sp_min, sp_max = score_df["internet_speed_mbps"].min(), score_df["internet_speed_mbps"].max()
+        if sp_max > sp_min:
+            score_df["speed_norm"] = (score_df["internet_speed_mbps"] - sp_min) / (sp_max - sp_min)
+        else:
+            score_df["speed_norm"] = 1.0
+
+        score_df["inv_cost"] = 1.0 / score_df["cost_per_day"].replace(0, pd.NA)
+        score_df["inv_cost"] = score_df["inv_cost"].fillna(score_df["inv_cost"].max() if score_df["inv_cost"].notna().any() else 1.0)
+        cmin, cmax = score_df["inv_cost"].min(), score_df["inv_cost"].max()
+        if cmax > cmin:
+            score_df["afford_norm"] = (score_df["inv_cost"] - cmin) / (cmax - cmin)
+        else:
+            score_df["afford_norm"] = 1.0
+
+        score_df["workability_score"] = 100 * (0.6 * score_df["speed_norm"] + 0.4 * score_df["afford_norm"])
+        top5 = score_df.sort_values("workability_score", ascending=False).head(5)
+
+        fig_work = px.bar(
+            top5, x="workability_score", y="trip_name", orientation="h",
+            labels={"workability_score":"Score","trip_name":"Trip"},
+            color="workability_score", color_continuous_scale="RdYlGn"
+        )
+        st.plotly_chart(apply_common_layout(fig_work, height=400), use_container_width=True, config=PLOTLY_CONFIG)
+        add_download(fig_work, "top_remote_work_destinations.png", key="dl_workability")
+    else:
+        st.info("Add both internet speeds and costs per day to rank remote-work destinations.")
+else:
+    st.info("Add trips (and optionally internet speeds) to see Digital Nomad Insights.")
+
+# =========================
+#   FOOTER
+# =========================
+st.markdown("---")
+st.markdown("🌍 Thanks for exploring the Travel Dashboard!  \n_All amounts are in USD._")
