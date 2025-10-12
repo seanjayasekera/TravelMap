@@ -200,7 +200,7 @@ def empty_trips_df() -> pd.DataFrame:
         "transportation_cost_usd": pd.Series(dtype="float"),
         "accommodation_cost_usd": pd.Series(dtype="float"),
         "activities_cost_usd": pd.Series(dtype="float"),
-        "food_cost_usd": pd.Series(dtype="float"),          # NEW: manual total meal cost per trip
+        "food_cost_usd": pd.Series(dtype="float"),          # manual trip total for meals
         "internet_speed_mbps": pd.Series(dtype="float"),
     })
 
@@ -245,7 +245,7 @@ def template_trips_bytes() -> bytes:
         "transportation_cost_usd": 600,
         "accommodation_cost_usd": 800,
         "activities_cost_usd": 250,
-        "food_cost_usd": 300,                 # NEW: manual trip total for meals
+        "food_cost_usd": 300,
         "internet_speed_mbps": 45,
     }])
     return df_to_csv_bytes(df)
@@ -379,14 +379,11 @@ if {"trip_id", "cost_usd"}.issubset(meals.columns) and len(meals):
     meals = meals.copy()
     meals["cost_usd"] = pd.to_numeric(meals["cost_usd"], errors="coerce").fillna(0)
     meals["trip_id"] = pd.to_numeric(meals["trip_id"], errors="coerce").astype("Int64")
-    # Sum of meal costs per trip from meals.csv
     food_from_meals = meals.groupby("trip_id", dropna=False)["cost_usd"].sum().rename("food_cost_usd_from_meals")
-    # Merge without dropping existing manual column
     trips = trips.merge(food_from_meals, how="left", left_on="trip_id", right_index=True)
 else:
     trips["food_cost_usd_from_meals"] = pd.Series(dtype="float")
 
-# Final food cost: prefer meals.csv sum when available; else manual trip field
 trips["food_cost_usd"] = pd.to_numeric(trips.get("food_cost_usd"), errors="coerce")
 trips["food_cost_usd_final"] = (
     trips["food_cost_usd_from_meals"].where(trips["food_cost_usd_from_meals"].notna(), trips["food_cost_usd"])
@@ -394,7 +391,7 @@ trips["food_cost_usd_final"] = (
 
 trips["year"] = year_series(pd.to_datetime(trips["start_date"], errors="coerce"))
 
-# Write back (post-derivations)
+# Write back
 st.session_state.trips_df = trips
 st.session_state.meals_df = meals
 
@@ -402,7 +399,6 @@ st.session_state.meals_df = meals
 #   (1) SPACER, (2) TOPBAR
 # =========================
 st.markdown('<div id="top-spacer"></div>', unsafe_allow_html=True)
-
 st.markdown("""
 <div class="topbar">
   <h1>🌍 Travel Dashboard</h1>
@@ -428,9 +424,10 @@ with tab_add_trip:
             total_cost_usd = st.number_input("Total cost *", min_value=0.0, step=10.0)
             transportation_cost_usd = st.number_input("Transportation cost", min_value=0.0, step=5.0, value=0.0)
             accommodation_cost_usd = st.number_input("Accommodation cost", min_value=0.0, step=5.0, value=0.0)
+        # NEW: Manual trip-level meal total + Activities
         c3 = st.columns(1)[0]
         with c3:
-            meal_cost_total_usd = st.number_input("Meal cost (trip total)", min_value=0.0, step=5.0, value=0.0)  # NEW
+            meal_cost_total_usd = st.number_input("Meal cost (trip total)", min_value=0.0, step=5.0, value=0.0)
             activities_cost_usd = st.number_input("Activities cost", min_value=0.0, step=5.0, value=0.0)
         d1, d2 = st.columns(2)
         with d1:
@@ -471,7 +468,7 @@ with tab_add_trip:
                 "transportation_cost_usd": float(transportation_cost_usd),
                 "accommodation_cost_usd": float(accommodation_cost_usd),
                 "activities_cost_usd": float(activities_cost_usd),
-                "food_cost_usd": float(meal_cost_total_usd),   # NEW: manual trip-level total meals
+                "food_cost_usd": float(meal_cost_total_usd),   # <-- saves manual total meal cost here
             }
             st.session_state.trips_df = pd.concat([cur, pd.DataFrame([new_row])], ignore_index=True)
             st.success(f"Trip “{trip_name}” added!")
