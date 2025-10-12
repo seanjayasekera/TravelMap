@@ -911,6 +911,14 @@ if len(t) and "internet_speed_mbps" in t.columns and t["internet_speed_mbps"].no
 
     # Top 5 Remote-Work Destinations (Workability Score)
     st.write("**Top 5 remote-work destinations (workability score)**")
+    st.caption(
+        "The workability score ranks destinations for remote work based on a blend of speed and affordability. "
+        "We normalize each trip’s **internet speed** (higher is better) and **affordability** "
+        "(computed as the inverse of cost per day, so lower cost = better), then combine them:  \n"
+        "**Score = 100 × (0.6 × speed_norm + 0.4 × affordability_norm)**.  "
+        "Use this as a directional guide, not an absolute truth."
+    )
+
     score_df = t.dropna(subset=["internet_speed_mbps", "cost_per_day"]).copy()
 
     if len(score_df) >= 1:
