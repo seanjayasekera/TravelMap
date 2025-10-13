@@ -144,6 +144,7 @@ try:
     from reportlab.pdfgen import canvas as rl_canvas
     from reportlab.lib.pagesizes import A4
     from reportlab.lib.utils import ImageReader
+    from reportlab.lib.colors import HexColor
     REPORTLAB_OK = True
 except Exception:
     REPORTLAB_OK = False
@@ -163,8 +164,28 @@ def add_download(fig, filename, key):
     if png:
         st.download_button("⬇️ Download PNG", data=png, file_name=filename, mime="image/png", key=key)
 
-def build_pdf_report(fig_sections, metrics_summary: dict) -> bytes | None:
-    """Assemble a simple multi-page PDF from chart PNGs using ReportLab."""
+def draw_metric_chip(c, x, y, w, h, label, value, chip_color="#0F2557", text_light="#FFFFFF", text_dim="#DDE4F2"):
+    """Draw a rounded 'metric chip' on the canvas."""
+    c.setFillColor(HexColor(chip_color))
+    c.setStrokeColor(HexColor(chip_color))
+    c.roundRect(x, y, w, h, 8, stroke=0, fill=1)
+
+    c.setFillColor(HexColor(text_dim))
+    c.setFont("Helvetica", 9)
+    c.drawString(x + 10, y + h - 14, label)
+
+    c.setFillColor(HexColor(text_light))
+    c.setFont("Helvetica-Bold", 16)
+    c.drawString(x + 10, y + h - 34, value)
+
+def build_pdf_report(fig_sections, cover):
+    """
+    Assemble a multi-page PDF with an attractive cover.
+    cover dict keys:
+      - title, subtitle, daterange
+      - metrics: dict(label->value)
+      - overview_lines: list[str]
+    """
     if not (KALEIDO_OK and REPORTLAB_OK):
         return None
 
@@ -173,44 +194,80 @@ def build_pdf_report(fig_sections, metrics_summary: dict) -> bytes | None:
     width, height = A4
     margin = 36
 
-    # Cover page
-    title = "Travel Dashboard Report"
-    sub = metrics_summary.get("subtitle", "")
-    date_str = datetime.now().strftime("%Y-%m-%d")
-    c.setFont("Helvetica-Bold", 22)
-    c.drawString(margin, height - margin - 30, title)
-    c.setFont("Helvetica", 12)
-    c.drawString(margin, height - margin - 55, f"Generated on {date_str}")
-    if sub:
-        c.drawString(margin, height - margin - 75, sub)
+    # ----- COVER -----
+    navy = HexColor("#0F2557")
+    blue = HexColor("#1C3D80")
+    light_navy = HexColor("#142F66")
+    dim = HexColor("#475a7b")
 
-    # Quick metrics on cover
-    y = height - margin - 110
-    c.setFont("Helvetica-Bold", 12)
-    c.drawString(margin, y, "Summary")
-    c.setFont("Helvetica", 11)
-    y -= 18
-    for k in ["Trips", "Countries", "Total Spend", "Median Cost/Day", "Avg Internet Speed", "Trips ≥25 Mbps"]:
-        if k in metrics_summary:
-            c.drawString(margin, y, f"• {k}: {metrics_summary[k]}")
-            y -= 16
+    # Banner
+    banner_h = 110
+    c.setFillColor(navy)
+    c.setStrokeColor(navy)
+    c.rect(0, height - banner_h, width, banner_h, fill=1, stroke=0)
+
+    # Title + subtitle
+    c.setFillColor(HexColor("#FFFFFF"))
+    c.setFont("Helvetica-Bold", 24)
+    c.drawString(margin, height - banner_h + 62, cover.get("title", "Travel Dashboard Report"))
+    c.setFont("Helvetica", 12)
+    subline = cover.get("subtitle", "")
+    if subline:
+        c.drawString(margin, height - banner_h + 40, subline)
+    dr = cover.get("daterange", "")
+    if dr:
+        c.drawString(margin, height - banner_h + 22, dr)
+
+    # Metric chips row (up to 6)
+    chips = cover.get("metrics", {})
+    chip_w = (width - 2*margin - 20) / 3  # 3 per row
+    chip_h = 42
+    rows = [height - banner_h - 20 - chip_h, height - banner_h - 20 - 2*(chip_h + 10)]
+    labels = list(chips.keys())
+    values = [chips[k] for k in labels]
+    for i, (label, value) in enumerate(zip(labels, values)):
+        row = 0 if i < 3 else 1
+        col = i % 3
+        x = margin + col * (chip_w + 10)
+        y = rows[row]
+        draw_metric_chip(c, x, y, chip_w, chip_h, label, str(value))
+
+    # Overview box
+    box_y = rows[1] - 110 if len(labels) > 3 else rows[0] - 110
+    c.setFillColor(light_navy)
+    c.roundRect(margin, box_y, width - 2*margin, 100, 10, fill=1, stroke=0)
+
+    c.setFillColor(HexColor("#FFFFFF"))
+    c.setFont("Helvetica-Bold", 13)
+    c.drawString(margin + 12, box_y + 78, "Overview")
+
+    c.setFont("Helvetica", 10)
+    o_lines = cover.get("overview_lines", [])
+    y = box_y + 58
+    for line in o_lines[:5]:
+        c.drawString(margin + 12, y, "• " + line)
+        y -= 16
+
     c.showPage()
 
-    # Chart pages (one or two per page depending on height)
+    # ----- CHART PAGES -----
     for title, fig in fig_sections:
         png = fig_png_bytes(fig, scale=2)
         if not png:
             continue
         img = ImageReader(BytesIO(png))
-        # Maintain aspect ratio; fit within page minus margins
+        # Fit within page
         max_w = width - 2*margin
-        max_h = height - 2*margin - 24  # some room for title
+        max_h = height - 2*margin - 24
         iw, ih = img.getSize()
         scale = min(max_w/iw, max_h/ih)
         draw_w, draw_h = iw*scale, ih*scale
 
+        # section title
+        c.setFillColor(navy)
         c.setFont("Helvetica-Bold", 12)
         c.drawString(margin, height - margin - 10, title)
+
         c.drawImage(img, margin, (height - margin - 24 - draw_h), width=draw_w, height=draw_h, preserveAspectRatio=True, mask='auto')
         c.showPage()
 
@@ -699,15 +756,48 @@ with c4: st.metric("Median Cost/Day", f"${med_cpd:,.2f}")
 with c5: st.metric("Avg Internet Speed", f"{avg_speed:.1f} Mbps" if pd.notnull(avg_speed) else "—")
 with c6: st.metric("Trips ≥25 Mbps", f"{pct_good:.0f}%" if pd.notnull(pct_good) else "—")
 
-# For PDF summary
-metrics_summary = {
-    "subtitle": "Track trips, meals, costs, and internet speeds",
-    "Trips": f"{len(t)}",
-    "Countries": f"{t['country'].nunique() if len(t) else 0}",
-    "Total Spend": f"${total_spend:,.0f}",
-    "Median Cost/Day": f"${med_cpd:,.2f}",
-    "Avg Internet Speed": f"{avg_speed:.1f} Mbps" if pd.notnull(avg_speed) else "—",
-    "Trips ≥25 Mbps": f"{pct_good:.0f}%" if pd.notnull(pct_good) else "—",
+# For PDF cover info
+if len(t):
+    min_d = pd.to_datetime(t["start_date"], errors="coerce").min()
+    max_d = pd.to_datetime(t["end_date"], errors="coerce").max()
+    date_range_str = ""
+    if pd.notnull(min_d) and pd.notnull(max_d):
+        date_range_str = f"Coverage: {min_d.strftime('%Y-%m-%d')} → {max_d.strftime('%Y-%m-%d')}"
+else:
+    date_range_str = ""
+
+filters_summary = []
+if sel_countries and len(sel_countries) < max(1, len(countries)):
+    if len(sel_countries) <= 5:
+        filters_summary.append("Countries: " + ", ".join(sel_countries))
+    else:
+        filters_summary.append(f"Countries: {len(sel_countries)} selected")
+if sel_years and len(sel_years) < max(1, len(years)):
+    filters_summary.append("Years: " + ", ".join(map(str, sel_years)))
+if search.strip():
+    filters_summary.append(f"Search: “{search.strip()}”")
+if not filters_summary:
+    filters_summary = ["No filters applied"]
+
+top_spend = (t.sort_values("total_cost_usd", ascending=False)["trip_name"].head(3).tolist() if len(t) else [])
+top_line = f"Top by total spend: {', '.join(top_spend)}" if top_spend else "Add trips to see top destinations"
+
+cover_info = {
+    "title": "Travel Dashboard Report",
+    "subtitle": "Trips, meals, costs & connectivity at a glance",
+    "daterange": date_range_str,
+    "metrics": {
+        "Trips": f"{len(t)}",
+        "Countries": f"{t['country'].nunique() if len(t) else 0}",
+        "Total Spend": f"${total_spend:,.0f}",
+        "Median Cost/Day": f"${med_cpd:,.2f}",
+        "Avg Internet Speed": f"{avg_speed:.1f} Mbps" if pd.notnull(avg_speed) else "—",
+        "Trips ≥25 Mbps": f"{pct_good:.0f}%" if pd.notnull(pct_good) else "—",
+    },
+    "overview_lines": [
+        *filters_summary,
+        top_line,
+    ],
 }
 
 st.markdown("---")
@@ -1093,7 +1183,7 @@ elif not REPORTLAB_OK:
 elif len(report_sections) == 0:
     st.info("Add some data to generate charts before exporting a PDF report.")
 else:
-    pdf_bytes = build_pdf_report(report_sections, metrics_summary)
+    pdf_bytes = build_pdf_report(report_sections, cover_info)
     if pdf_bytes:
         st.download_button(
             "📄 Download PDF Report",
