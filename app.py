@@ -2,6 +2,7 @@ import os
 import base64
 from io import StringIO as _StringIO, BytesIO
 from datetime import datetime
+import textwrap
 import streamlit as st
 import pandas as pd
 import plotly.express as px
@@ -178,13 +179,45 @@ def draw_metric_chip(c, x, y, w, h, label, value, chip_color="#0F2557", text_lig
     c.setFont("Helvetica-Bold", 16)
     c.drawString(x + 10, y + h - 34, value)
 
-def build_pdf_report(fig_sections, cover):
+def wrap_text_lines(text, max_chars=95):
+    wrapped = []
+    for para in text.split("\n"):
+        wrapped.extend(textwrap.wrap(para, width=max_chars) or [""])
+    return wrapped
+
+def draw_text_block(c, title, text, margin, width, height, start_y=None):
+    navy = HexColor("#0F2557")
+    c.setFillColor(navy)
+    c.setFont("Helvetica-Bold", 14)
+    y = start_y if start_y is not None else (height - margin - 16)
+    c.drawString(margin, y, title)
+    y -= 22
+    c.setFillColor(HexColor("#111111"))
+    c.setFont("Helvetica", 11)
+    for line in wrap_text_lines(text, max_chars=100):
+        if y < margin + 20:  # new page if running out of space
+            c.showPage()
+            y = height - margin - 16
+            c.setFillColor(navy)
+            c.setFont("Helvetica-Bold", 14)
+            c.drawString(margin, y, title + " (cont.)")
+            y -= 22
+            c.setFillColor(HexColor("#111111"))
+            c.setFont("Helvetica", 11)
+        c.drawString(margin, y, line)
+        y -= 16
+    c.showPage()
+
+def build_pdf_report(fig_sections, cover, summary_pages=None):
     """
     Assemble a multi-page PDF with an attractive cover.
     cover dict keys:
       - title, subtitle, daterange
       - metrics: dict(label->value)
       - overview_lines: list[str]
+    summary_pages: list of dicts like:
+      [{"title": "Trip Summary", "paragraph": "..."},
+       {"title": "Trip Snapshots", "paragraph": "..."}]
     """
     if not (KALEIDO_OK and REPORTLAB_OK):
         return None
@@ -196,10 +229,7 @@ def build_pdf_report(fig_sections, cover):
 
     # ----- COVER -----
     navy = HexColor("#0F2557")
-    blue = HexColor("#1C3D80")
     light_navy = HexColor("#142F66")
-    dim = HexColor("#475a7b")
-
     # Banner
     banner_h = 110
     c.setFillColor(navy)
@@ -218,7 +248,7 @@ def build_pdf_report(fig_sections, cover):
     if dr:
         c.drawString(margin, height - banner_h + 22, dr)
 
-    # Metric chips row (up to 6)
+    # Metric chips
     chips = cover.get("metrics", {})
     chip_w = (width - 2*margin - 20) / 3  # 3 per row
     chip_h = 42
@@ -249,6 +279,13 @@ def build_pdf_report(fig_sections, cover):
         y -= 16
 
     c.showPage()
+
+    # ----- SUMMARY PAGES -----
+    if summary_pages:
+        for sec in summary_pages:
+            title = sec.get("title", "Summary")
+            para = sec.get("paragraph", "")
+            draw_text_block(c, title, para, margin, width, height)
 
     # ----- CHART PAGES -----
     for title, fig in fig_sections:
@@ -383,6 +420,13 @@ def template_meals_bytes() -> bytes:
 def next_int(series):
     s = pd.to_numeric(series, errors="coerce").dropna().astype(int)
     return (s.max() + 1) if len(s) else 1
+
+def fmt_money(x, zero_str="$0"):
+    try:
+        x = float(x)
+        return f"${x:,.0f}" if x else zero_str
+    except Exception:
+        return "—"
 
 # =========================
 #   SIDEBAR: How to Use, Uploads, Templates, Clear
@@ -1173,9 +1217,117 @@ else:
 st.markdown("---")
 
 # =========================
+#   SUMMARY BUILDER (for PDF)
+# =========================
+def make_single_trip_summary(trip_row: pd.Series, meals_df: pd.DataFrame, norm_basis: pd.DataFrame) -> str:
+    name = str(trip_row.get("trip_name", "") or "").strip() or "Unnamed Trip"
+    city = str(trip_row.get("primary_city", "") or "").strip()
+    country = str(trip_row.get("country", "") or "").strip()
+    sd = pd.to_datetime(trip_row.get("start_date"), errors="coerce")
+    ed = pd.to_datetime(trip_row.get("end_date"), errors="coerce")
+    days = int(trip_row.get("days") or ((ed - sd).days if pd.notnull(sd) and pd.notnull(ed) else 1) or 1)
+
+    total = trip_row.get("total_cost_usd", 0) or 0
+    cpd = trip_row.get("cost_per_day", 0) or 0
+    tr = trip_row.get("transportation_cost_usd", 0) or 0
+    ac = trip_row.get("accommodation_cost_usd", 0) or 0
+    fo = trip_row.get("food_cost_usd_final", 0) or 0
+    act = trip_row.get("activities_cost_usd", 0) or 0
+
+    spd = trip_row.get("internet_speed_mbps")
+    spd_txt = f"{float(spd):.0f} Mbps" if pd.notnull(spd) else "not recorded"
+
+    # Workability (normalize within norm_basis = current filtered trips)
+    score_txt = "—"
+    try:
+        nb = norm_basis.dropna(subset=["cost_per_day"])
+        if "internet_speed_mbps" in nb.columns and nb["internet_speed_mbps"].notna().any():
+            smin, smax = nb["internet_speed_mbps"].min(), nb["internet_speed_mbps"].max()
+            if pd.notnull(spd) and smax > smin:
+                speed_norm = (spd - smin) / (smax - smin)
+            else:
+                speed_norm = 1.0 if pd.notnull(spd) else 0.0
+        else:
+            speed_norm = 0.0
+
+        inv_cost = 1.0 / trip_row.get("cost_per_day", 0) if trip_row.get("cost_per_day", 0) else float("nan")
+        inv_series = 1.0 / nb["cost_per_day"].replace(0, pd.NA)
+        inv_series = inv_series.dropna()
+        if len(inv_series):
+            cmin, cmax = inv_series.min(), inv_series.max()
+            if pd.notnull(inv_cost) and cmax > cmin:
+                afford_norm = (inv_cost - cmin) / (cmax - cmin)
+            else:
+                afford_norm = 1.0 if pd.notnull(inv_cost) else 0.0
+        else:
+            afford_norm = 0.0
+
+        score = 100 * (0.6 * speed_norm + 0.4 * afford_norm)
+        score_txt = f"{score:.0f}/100"
+    except Exception:
+        pass
+
+    # Meals highlights for this trip
+    m = meals_df.copy()
+    if len(m) and "trip_id" in m.columns:
+        m = m[m["trip_id"] == trip_row.get("trip_id")]
+    avg_rating = None
+    top_dish = None
+    if len(m):
+        if "rating_1_10" in m.columns:
+            try:
+                avg_rating = pd.to_numeric(m["rating_1_10"], errors="coerce").dropna().mean()
+            except Exception:
+                avg_rating = None
+        if {"rating_1_10", "dish_name"}.issubset(m.columns):
+            top = m.dropna(subset=["rating_1_10"]).sort_values("rating_1_10", ascending=False).head(1)
+            if len(top):
+                dn = str(top.iloc[0].get("dish_name") or "").strip()
+                rn = str(top.iloc[0].get("restaurant") or "").strip()
+                if dn:
+                    top_dish = dn + (f" at {rn}" if rn else "")
+
+    date_str = ""
+    if pd.notnull(sd) and pd.notnull(ed):
+        date_str = f"in {sd.strftime('%B %Y')}" if sd.year == ed.year and sd.month == ed.month else f"from {sd.strftime('%b %d, %Y')} to {ed.strftime('%b %d, %Y')}"
+
+    parts = []
+    parts.append(f"In {date_str or 'your trip'}, you visited **{city}, {country}** for **{days} day{'s' if days!=1 else ''}** on “{name}”.")
+    parts.append(f"You spent **{fmt_money(total)} total** (about **{cpd:,.2f}/day**), with costs across transportation ({fmt_money(tr)}), accommodation ({fmt_money(ac)}), food ({fmt_money(fo)}), and activities ({fmt_money(act)}).")
+    parts.append(f"Average internet speed was **{spd_txt}**, yielding a **workability score of {score_txt}**.")
+    if avg_rating is not None:
+        parts.append(f"Your meal ratings averaged **{avg_rating:.1f}/10**.")
+    if top_dish:
+        parts.append(f"Top-rated dish: **{top_dish}**.")
+    return " ".join(parts)
+
+def make_multi_trip_snapshots(trips_df: pd.DataFrame, meals_df: pd.DataFrame) -> str:
+    lines = []
+    for _, r in trips_df.sort_values("start_date").iterrows():
+        name = str(r.get("trip_name", "") or "").strip() or "Unnamed Trip"
+        city = str(r.get("primary_city", "") or "").strip()
+        country = str(r.get("country", "") or "").strip()
+        days = int(r.get("days") or 1)
+        total = r.get("total_cost_usd", 0) or 0
+        cpd = r.get("cost_per_day", 0) or 0
+        spd = r.get("internet_speed_mbps")
+        spd_txt = f"{float(spd):.0f} Mbps" if pd.notnull(spd) else "—"
+        lines.append(f"• {name} — {city}, {country} ({days} days): {fmt_money(total)} total, ${cpd:,.0f}/day; internet {spd_txt}.")
+    return "\n".join(lines) if lines else "Add trips to see snapshots."
+
+# =========================
 #   PDF REPORT DOWNLOAD
 # =========================
 st.subheader("📄 Export")
+# Build summary pages depending on filtered selection
+summary_pages = []
+if len(t) == 1:
+    summary_text = make_single_trip_summary(t.iloc[0], meals, t)
+    summary_pages.append({"title": "Trip Summary", "paragraph": summary_text})
+elif len(t) > 1:
+    snapshots_text = make_multi_trip_snapshots(t, meals)
+    summary_pages.append({"title": "Trip Snapshots", "paragraph": snapshots_text})
+
 if not KALEIDO_OK:
     st.info("To enable PNG/PDF exports, ensure `kaleido` is installed in requirements.txt.")
 elif not REPORTLAB_OK:
@@ -1183,7 +1335,7 @@ elif not REPORTLAB_OK:
 elif len(report_sections) == 0:
     st.info("Add some data to generate charts before exporting a PDF report.")
 else:
-    pdf_bytes = build_pdf_report(report_sections, cover_info)
+    pdf_bytes = build_pdf_report(report_sections, cover_info, summary_pages=summary_pages)
     if pdf_bytes:
         st.download_button(
             "📄 Download PDF Report",
