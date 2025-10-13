@@ -1,6 +1,7 @@
 import os
 import base64
-from io import StringIO as _StringIO
+from io import StringIO as _StringIO, BytesIO
+from datetime import datetime
 import streamlit as st
 import pandas as pd
 import plotly.express as px
@@ -131,13 +132,21 @@ if os.path.exists("background.jpg"):
 inject_background(bg_bytes)
 
 # =========================
-#   PNG EXPORT SUPPORT (optional)
+#   PNG EXPORT SUPPORT (optional) + PDF SUPPORT
 # =========================
 try:
     import kaleido  # noqa: F401
     KALEIDO_OK = True
 except Exception:
     KALEIDO_OK = False
+
+try:
+    from reportlab.pdfgen import canvas as rl_canvas
+    from reportlab.lib.pagesizes import A4
+    from reportlab.lib.utils import ImageReader
+    REPORTLAB_OK = True
+except Exception:
+    REPORTLAB_OK = False
 
 PLOTLY_CONFIG = {"displaylogo": False, "modeBarButtonsToAdd": ["toImage"] if not KALEIDO_OK else []}
 
@@ -153,6 +162,61 @@ def add_download(fig, filename, key):
     png = fig_png_bytes(fig)
     if png:
         st.download_button("⬇️ Download PNG", data=png, file_name=filename, mime="image/png", key=key)
+
+def build_pdf_report(fig_sections, metrics_summary: dict) -> bytes | None:
+    """Assemble a simple multi-page PDF from chart PNGs using ReportLab."""
+    if not (KALEIDO_OK and REPORTLAB_OK):
+        return None
+
+    buf = BytesIO()
+    c = rl_canvas.Canvas(buf, pagesize=A4)
+    width, height = A4
+    margin = 36
+
+    # Cover page
+    title = "Travel Dashboard Report"
+    sub = metrics_summary.get("subtitle", "")
+    date_str = datetime.now().strftime("%Y-%m-%d")
+    c.setFont("Helvetica-Bold", 22)
+    c.drawString(margin, height - margin - 30, title)
+    c.setFont("Helvetica", 12)
+    c.drawString(margin, height - margin - 55, f"Generated on {date_str}")
+    if sub:
+        c.drawString(margin, height - margin - 75, sub)
+
+    # Quick metrics on cover
+    y = height - margin - 110
+    c.setFont("Helvetica-Bold", 12)
+    c.drawString(margin, y, "Summary")
+    c.setFont("Helvetica", 11)
+    y -= 18
+    for k in ["Trips", "Countries", "Total Spend", "Median Cost/Day", "Avg Internet Speed", "Trips ≥25 Mbps"]:
+        if k in metrics_summary:
+            c.drawString(margin, y, f"• {k}: {metrics_summary[k]}")
+            y -= 16
+    c.showPage()
+
+    # Chart pages (one or two per page depending on height)
+    for title, fig in fig_sections:
+        png = fig_png_bytes(fig, scale=2)
+        if not png:
+            continue
+        img = ImageReader(BytesIO(png))
+        # Maintain aspect ratio; fit within page minus margins
+        max_w = width - 2*margin
+        max_h = height - 2*margin - 24  # some room for title
+        iw, ih = img.getSize()
+        scale = min(max_w/iw, max_h/ih)
+        draw_w, draw_h = iw*scale, ih*scale
+
+        c.setFont("Helvetica-Bold", 12)
+        c.drawString(margin, height - margin - 10, title)
+        c.drawImage(img, margin, (height - margin - 24 - draw_h), width=draw_w, height=draw_h, preserveAspectRatio=True, mask='auto')
+        c.showPage()
+
+    c.save()
+    buf.seek(0)
+    return buf.getvalue()
 
 # =========================
 #   OPTIONAL GEOCODER (geopy)
@@ -635,7 +699,21 @@ with c4: st.metric("Median Cost/Day", f"${med_cpd:,.2f}")
 with c5: st.metric("Avg Internet Speed", f"{avg_speed:.1f} Mbps" if pd.notnull(avg_speed) else "—")
 with c6: st.metric("Trips ≥25 Mbps", f"{pct_good:.0f}%" if pd.notnull(pct_good) else "—")
 
+# For PDF summary
+metrics_summary = {
+    "subtitle": "Track trips, meals, costs, and internet speeds",
+    "Trips": f"{len(t)}",
+    "Countries": f"{t['country'].nunique() if len(t) else 0}",
+    "Total Spend": f"${total_spend:,.0f}",
+    "Median Cost/Day": f"${med_cpd:,.2f}",
+    "Avg Internet Speed": f"{avg_speed:.1f} Mbps" if pd.notnull(avg_speed) else "—",
+    "Trips ≥25 Mbps": f"{pct_good:.0f}%" if pd.notnull(pct_good) else "—",
+}
+
 st.markdown("---")
+
+# Prepare list of report sections (title, fig)
+report_sections = []
 
 # =========================
 #   MAP + TOTAL SPEND
@@ -673,6 +751,7 @@ with col1:
         fig_map.update_layout(margin=dict(l=0,r=0,t=0,b=0), height=450, template="simple_white")
         st.plotly_chart(fig_map, use_container_width=True, config=PLOTLY_CONFIG)
         add_download(fig_map, "map.png", key="dl_map")
+        report_sections.append(("Where you've been", fig_map))
     else:
         st.info("No trips yet. Add your first trip in **Add / Manage Data → Add Trip**.")
 
@@ -698,6 +777,7 @@ with col2:
         apply_common_layout(fig_cost, height=450)
         st.plotly_chart(fig_cost, use_container_width=True, config=PLOTLY_CONFIG)
         add_download(fig_cost, "total_spend.png", key="dl_total")
+        report_sections.append(("Total spend per trip", fig_cost))
     else:
         st.info("Add some trips to see spending charts.")
 
@@ -721,6 +801,7 @@ if len(t):
     apply_common_layout(fig_cpd, height=520)
     st.plotly_chart(fig_cpd, use_container_width=True, config=PLOTLY_CONFIG)
     add_download(fig_cpd, "cost_per_day.png", key="dl_cpd")
+    report_sections.append(("Cost per day leaderboard", fig_cpd))
 else:
     st.info("Add some trips to see the cost-per-day leaderboard.")
 
@@ -763,7 +844,6 @@ if {"trip_id","cuisine","rating_1_10"}.issubset(meals.columns) and len(meals) an
             table_df["Cost"] = pd.to_numeric(table_df["Cost"], errors="coerce").map(
                 lambda v: f"${v:,.2f}" if pd.notnull(v) else ""
             )
-
         try:
             st.dataframe(table_df, use_container_width=True, hide_index=True)
         except TypeError:
@@ -787,6 +867,7 @@ if {"trip_id","cuisine","rating_1_10"}.issubset(meals.columns) and len(meals) an
         apply_common_layout(fig_cuisine)
         st.plotly_chart(fig_cuisine, use_container_width=True, config=PLOTLY_CONFIG)
         add_download(fig_cuisine, "food_ratings_cuisines.png", key="dl_cuisine")
+        report_sections.append(("Food ratings — avg by cuisine", fig_cuisine))
 else:
     st.info("Add meals (and at least one trip) to see Food Ratings.")
 
@@ -811,6 +892,7 @@ if "transportation_cost_usd" in t.columns and len(t) and t["transportation_cost_
     apply_common_layout(fig_transport)
     st.plotly_chart(fig_transport, use_container_width=True, config=PLOTLY_CONFIG)
     add_download(fig_transport, "transportation.png", key="dl_transport")
+    report_sections.append(("Transportation spend per trip", fig_transport))
 else:
     st.info("Add trips with transportation costs to see this chart.")
 
@@ -830,6 +912,7 @@ if "food_cost_usd_final" in t.columns and len(t):
     apply_common_layout(fig_food)
     st.plotly_chart(fig_food, use_container_width=True, config=PLOTLY_CONFIG)
     add_download(fig_food, "food_spend.png", key="dl_food")
+    report_sections.append(("Food spend per trip", fig_food))
 else:
     st.info("Add meals or a manual trip meal cost to see food totals per trip.")
 
@@ -849,6 +932,7 @@ if "accommodation_cost_usd" in t.columns and len(t) and t["accommodation_cost_us
     apply_common_layout(fig_accom)
     st.plotly_chart(fig_accom, use_container_width=True, config=PLOTLY_CONFIG)
     add_download(fig_accom, "accommodation.png", key="dl_accom")
+    report_sections.append(("Accommodation spend per trip", fig_accom))
 else:
     st.info("Add trips with accommodation costs to see this chart.")
 
@@ -868,6 +952,7 @@ if "activities_cost_usd" in t.columns and len(t) and t["activities_cost_usd"].no
     apply_common_layout(fig_activities)
     st.plotly_chart(fig_activities, use_container_width=True, config=PLOTLY_CONFIG)
     add_download(fig_activities, "activities_spend.png", key="dl_activities")
+    report_sections.append(("Activities spend per trip", fig_activities))
 else:
     st.info("Add trips with activities costs to see this chart.")
 
@@ -928,6 +1013,7 @@ if len(t) and "internet_speed_mbps" in t.columns and t["internet_speed_mbps"].no
     fig_net.update_traces(hovertemplate="<b>%{y}</b><br>%{x:.1f} Mbps<extra></extra>")
     st.plotly_chart(apply_common_layout(fig_net, height=420), use_container_width=True, config=PLOTLY_CONFIG)
     add_download(fig_net, "internet_speed.png", key="dl_net_dn")
+    report_sections.append(("Average Internet Speed by Trip", fig_net))
 
     st.write("**Average internet speed by country**")
     country_speed = (
@@ -945,10 +1031,11 @@ if len(t) and "internet_speed_mbps" in t.columns and t["internet_speed_mbps"].no
         )
         st.plotly_chart(apply_common_layout(fig_country), use_container_width=True, config=PLOTLY_CONFIG)
         add_download(fig_country, "country_avg_speed.png", key="dl_country_speed")
+        report_sections.append(("Average internet speed by country", fig_country))
     else:
         st.info("Add countries with internet speed to see this chart.")
 
-    # >>> Move the explanation RIGHT ABOVE the Workability Score visual <<<
+    # Explanation placed right above the Workability Score visual
     st.markdown(
         "**Workability Score**  \n"
         "A simple indicator for digital nomads that captures how comfortable it is to work from a destination. "
@@ -987,10 +1074,36 @@ if len(t) and "internet_speed_mbps" in t.columns and t["internet_speed_mbps"].no
         )
         st.plotly_chart(apply_common_layout(fig_work, height=400), use_container_width=True, config=PLOTLY_CONFIG)
         add_download(fig_work, "top_remote_work_destinations.png", key="dl_workability")
+        report_sections.append(("Top 5 remote-work destinations (workability score)", fig_work))
     else:
         st.info("Add both internet speeds and costs per day to rank remote-work destinations.")
 else:
     st.info("Add trips (and optionally internet speeds) to see Digital Nomad Insights.")
+
+st.markdown("---")
+
+# =========================
+#   PDF REPORT DOWNLOAD
+# =========================
+st.subheader("📄 Export")
+if not KALEIDO_OK:
+    st.info("To enable PNG/PDF exports, ensure `kaleido` is installed in requirements.txt.")
+elif not REPORTLAB_OK:
+    st.info("To enable PDF export, add `reportlab>=3.6.12` to requirements.txt.")
+elif len(report_sections) == 0:
+    st.info("Add some data to generate charts before exporting a PDF report.")
+else:
+    pdf_bytes = build_pdf_report(report_sections, metrics_summary)
+    if pdf_bytes:
+        st.download_button(
+            "📄 Download PDF Report",
+            data=pdf_bytes,
+            file_name=f"travel_dashboard_report_{datetime.now().strftime('%Y%m%d')}.pdf",
+            mime="application/pdf",
+            use_container_width=True,
+        )
+    else:
+        st.warning("Could not build PDF report. Check `kaleido` and `reportlab` are installed and try again.")
 
 # =========================
 #   FOOTER
