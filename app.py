@@ -458,9 +458,9 @@ with st.sidebar.expander("ℹ️ How to use this app"):
     st.write("""
     1. Download the **sample CSVs** below.
     2. Open them in Excel or Google Sheets.
-    3. Replace the example row with **your own trip and meal data**.
-    4. Upload the updated files in the **Upload your data** section.
-    5. Or, skip CSVs and use the **Add Trip / Add Meal** tabs to enter data directly.
+    3. Replace the example row with your own trip and meal data.
+    4. Upload the updated files in the Upload your data section.
+    5. Or, skip CSVs and use the Add Trip / Add Meal tabs to enter data directly.
     """)
 
 st.sidebar.header("Upload your data (optional)")
@@ -849,7 +849,7 @@ if not filters_summary:
 top_spend = (t.sort_values("total_cost_usd", ascending=False)["trip_name"].head(3).tolist() if len(t) else [])
 top_line = f"Top by total spend: {', '.join(top_spend)}" if top_spend else "Add trips to see top destinations"
 
-# ---------- Executive summary builder ----------
+# ---------- Executive summary builder (no asterisks/markdown) ----------
 def build_exec_summary(trips_df: pd.DataFrame, meals_df: pd.DataFrame) -> str:
     if trips_df is None or len(trips_df) == 0:
         return "No trips yet. Add your first trip to generate insights."
@@ -879,14 +879,14 @@ def build_exec_summary(trips_df: pd.DataFrame, meals_df: pd.DataFrame) -> str:
         pass
 
     bits = []
-    bits.append(f"This report summarizes **{trips_cnt} trip{'s' if trips_cnt!=1 else ''}** across **{countries_cnt} countr{'ies' if countries_cnt!=1 else 'y'}**.")
-    bits.append(f"Total spend was **{fmt_money(total_spend_)}**, with a **median cost per day of ${med_cpd_:,.2f}**.")
+    bits.append(f"This report summarizes {trips_cnt} trip{'s' if trips_cnt!=1 else ''} across {countries_cnt} countr{'ies' if countries_cnt!=1 else 'y'}.")
+    bits.append(f"Total spend was {fmt_money(total_spend_)}, with a median cost per day of ${med_cpd_:,.2f}.")
     if pd.notnull(avg_speed_):
-        bits.append(f"Average recorded internet speed was **{avg_speed_:,.1f} Mbps**, a proxy for remote-work readiness.")
+        bits.append(f"Average recorded internet speed was {avg_speed_:,.1f} Mbps, a proxy for remote-work readiness.")
     if top_trip_name:
-        bits.append(f"Highest spend: **{top_trip_name}**.")
+        bits.append(f"Highest spend: {top_trip_name}.")
     if best_food_trip:
-        bits.append(f"Tastiest trip by average meal rating: **{best_food_trip}**.")
+        bits.append(f"Tastiest trip by average meal rating: {best_food_trip}.")
     return " ".join(bits)
 
 cover_info = {
@@ -905,7 +905,7 @@ cover_info = {
         *filters_summary,
         top_line,
     ],
-    # NEW: Executive summary paragraph displayed on the FIRST PAGE
+    # Executive summary paragraph displayed on the FIRST PAGE (no markdown)
     "exec_summary": build_exec_summary(t, meals),
 }
 
@@ -952,7 +952,7 @@ with col1:
         add_download(fig_map, "map.png", key="dl_map")
         report_sections.append(("Where you've been", fig_map))
     else:
-        st.info("No trips yet. Add your first trip in **Add / Manage Data → Add Trip**.")
+        st.info("No trips yet. Add your first trip in Add / Manage Data → Add Trip.")
 
 with col2:
     st.subheader("💵 Total spend per trip")
@@ -1272,11 +1272,11 @@ if len(t) and "internet_speed_mbps" in t.columns and t["internet_speed_mbps"].no
     st.markdown(
         "**Workability Score**  \n"
         "A simple indicator for digital nomads that captures how comfortable it is to work from a destination. "
-        "It blends *internet speed* (faster is better) and *affordability* (lower cost per day is better) into one score."
+        "It blends internet speed (faster is better) and affordability (lower cost per day is better) into one score."
     )
     st.caption(
-        "We normalize each trip’s **internet speed** and **affordability** (1 / cost per day), then combine them.  \n"
-        "**Score = 100 × (0.6 × speed_norm + 0.4 × affordability_norm)**."
+        "We normalize each trip’s internet speed and affordability (1 / cost per day), then combine them.  \n"
+        "Score = 100 × (0.6 × speed_norm + 0.4 × affordability_norm)."
     )
 
     st.write("**Top 5 remote-work destinations (workability score)**")
@@ -1316,7 +1316,7 @@ else:
 st.markdown("---")
 
 # =========================
-#   SUMMARY BUILDER (for PDF)
+#   SUMMARY BUILDERS (for PDF) — no markdown/asterisks
 # =========================
 def make_single_trip_summary(trip_row: pd.Series, meals_df: pd.DataFrame, norm_basis: pd.DataFrame) -> str:
     name = str(trip_row.get("trip_name", "") or "").strip() or "Unnamed Trip"
@@ -1393,13 +1393,13 @@ def make_single_trip_summary(trip_row: pd.Series, meals_df: pd.DataFrame, norm_b
         date_str = f"in {sd.strftime('%B %Y')}" if sd.year == ed.year and sd.month == ed.month else f"from {sd.strftime('%b %d, %Y')} to {ed.strftime('%b %d, %Y')}"
 
     parts = []
-    parts.append(f"In {date_str or 'your trip'}, you visited **{city}, {country}** for **{days} day{'s' if days!=1 else ''}** on “{name}”.")
-    parts.append(f"You spent **{fmt_money(total)} total** (about **{cpd:,.2f}/day**), with costs across transportation ({fmt_money(tr)}), accommodation ({fmt_money(ac)}), food ({fmt_money(fo)}), and activities ({fmt_money(act)}).")
-    parts.append(f"Average internet speed was **{spd_txt}**, yielding a **workability score of {score_txt}**.")
+    parts.append(f"In {date_str or 'your trip'}, you visited {city}, {country} for {days} day{'s' if days!=1 else ''} on “{name}”.")
+    parts.append(f"You spent {fmt_money(total)} total (about {cpd:,.2f}/day), with costs across transportation ({fmt_money(tr)}), accommodation ({fmt_money(ac)}), food ({fmt_money(fo)}), and activities ({fmt_money(act)}).")
+    parts.append(f"Average internet speed was {spd_txt}, yielding a workability score of {score_txt}.")
     if avg_rating is not None:
-        parts.append(f"Your meal ratings averaged **{avg_rating:.1f}/10**.")
+        parts.append(f"Your meal ratings averaged {avg_rating:.1f}/10.")
     if top_dish:
-        parts.append(f"Top-rated dish: **{top_dish}**.")
+        parts.append(f"Top-rated dish: {top_dish}.")
     return " ".join(parts)
 
 def make_multi_trip_snapshots(trips_df: pd.DataFrame, meals_df: pd.DataFrame) -> str:
