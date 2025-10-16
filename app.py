@@ -1,5 +1,5 @@
 # --- Travel Dashboard (Streamlit) ---
-# Full app with bold emphasis in PDF executive summaries (exact prior phrasing).
+# Full app with compact PDF export (2 charts/page) and bolded executive summary.
 import os
 import base64
 from io import StringIO as _StringIO, BytesIO
@@ -1017,14 +1017,22 @@ def make_multi_trip_snapshots(trips_df: pd.DataFrame, meals_df: pd.DataFrame) ->
     return "<br/>".join(lines) if lines else "Add trips to see snapshots."
 
 # =========================
-#   PDF Export (styled paragraphs)
+#   PDF Export (COMPACT LAYOUT: 2 charts/page)
 # =========================
 def build_pdf_report(fig_sections, cover, summary_pages=None):
+    """
+    Compact PDF layout:
+      - Cover with exec summary
+      - Optional summary pages
+      - Charts: 2 per page, stacked, reduced margins & tighter gaps
+    """
     if not (KALEIDO_OK and REPORTLAB_OK):
         return None
 
     buf = BytesIO()
-    from reportlab.pdfgen import canvas as rl_canvas  # ensure import in this scope for some hosts
+
+    # Local imports
+    from reportlab.pdfgen import canvas as rl_canvas
     from reportlab.lib.pagesizes import A4
     from reportlab.lib.utils import ImageReader
     from reportlab.lib.colors import HexColor
@@ -1032,45 +1040,70 @@ def build_pdf_report(fig_sections, cover, summary_pages=None):
     from reportlab.lib.styles import ParagraphStyle
     from reportlab.lib.enums import TA_LEFT
 
+    # Page + styles
     c = rl_canvas.Canvas(buf, pagesize=A4)
-    width, height = A4; margin = 36
-    navy = HexColor("#0F2557"); light_navy = HexColor("#142F66")
+    width, height = A4
+    margin = 24  # tighter than before
+    navy = HexColor("#0F2557")
+    light_navy = HexColor("#142F66")
+    body_style = ParagraphStyle(
+        "Body", fontName="Helvetica", fontSize=10.5, leading=14, alignment=TA_LEFT, textColor=HexColor("#111111")
+    )
 
-    body_style = ParagraphStyle("Body", fontName="Helvetica", fontSize=10.5, leading=14, alignment=TA_LEFT, textColor=HexColor("#111111"))
+    # ---------- COVER ----------
+    banner_h = 96
+    c.setFillColor(navy); c.setStrokeColor(navy)
+    c.rect(0, height - banner_h, width, banner_h, fill=1, stroke=0)
 
-    # COVER
-    banner_h = 110
-    c.setFillColor(navy); c.setStrokeColor(navy); c.rect(0, height - banner_h, width, banner_h, fill=1, stroke=0)
-    c.setFillColor(HexColor("#FFFFFF")); c.setFont("Helvetica-Bold", 24)
-    c.drawString(margin, height - banner_h + 62, cover.get("title", "Travel Dashboard Report"))
-    c.setFont("Helvetica", 12)
-    subline = cover.get("subtitle", "");  dr = cover.get("daterange", "")
-    if subline: c.drawString(margin, height - banner_h + 40, subline)
+    c.setFillColor(HexColor("#FFFFFF")); c.setFont("Helvetica-Bold", 22)
+    c.drawString(margin, height - banner_h + 58, cover.get("title", "Travel Dashboard Report"))
+    c.setFont("Helvetica", 11)
+    subline = cover.get("subtitle", ""); dr = cover.get("daterange", "")
+    if subline: c.drawString(margin, height - banner_h + 38, subline)
     if dr: c.drawString(margin, height - banner_h + 22, dr)
 
+    # Chips (metrics)
     chips = cover.get("metrics", {})
-    chip_w = (width - 2*margin - 20) / 3; chip_h = 42
-    rows = [height - banner_h - 20 - chip_h, height - banner_h - 20 - 2*(chip_h + 10)]
-    labels = list(chips.keys()); values = [chips[k] for k in labels]
-    for i, (label, value) in enumerate(zip(labels, values)):
-        row = 0 if i < 3 else 1; col = i % 3
-        x = margin + col * (chip_w + 10); y = rows[row]
-        draw_metric_chip(c, x, y, chip_w, chip_h, label, str(value))
+    chip_w = (width - 2*margin - 16) / 3.0
+    chip_h = 38
+    rows_y = [height - banner_h - 16 - chip_h, height - banner_h - 16 - 2*(chip_h + 8)]
+    labels = list(chips.keys())
+    values = [chips[k] for k in labels]
+    def _chip(x, y, w, h, label, value):
+        c.setFillColor(light_navy); c.setStrokeColor(light_navy)
+        c.roundRect(x, y, w, h, 7, fill=1, stroke=0)
+        c.setFillColor(HexColor("#DDE4F2")); c.setFont("Helvetica", 8)
+        c.drawString(x + 8, y + h - 12, label)
+        c.setFillColor(HexColor("#FFFFFF")); c.setFont("Helvetica-Bold", 14)
+        c.drawString(x + 8, y + h - 28, str(value))
+    for i, (lab, val) in enumerate(zip(labels, values)):
+        row = 0 if i < 3 else 1
+        col = i % 3
+        x = margin + col * (chip_w + 8)
+        y = rows_y[row]
+        _chip(x, y, chip_w, chip_h, lab, val)
 
-    box_y = rows[1] - 110 if len(labels) > 3 else rows[0] - 110
-    c.setFillColor(light_navy); c.roundRect(margin, box_y, width - 2*margin, 100, 10, fill=1, stroke=0)
-    c.setFillColor(HexColor("#FFFFFF")); c.setFont("Helvetica-Bold", 13); c.drawString(margin + 12, box_y + 78, "Overview")
-    c.setFont("Helvetica", 10)
-    o_lines = cover.get("overview_lines", []); y = box_y + 58
+    # Overview box
+    box_y = rows_y[1] - 92 if len(labels) > 3 else rows_y[0] - 92
+    c.setFillColor(light_navy)
+    c.roundRect(margin, box_y, width - 2*margin, 84, 8, fill=1, stroke=0)
+    c.setFillColor(HexColor("#FFFFFF")); c.setFont("Helvetica-Bold", 12)
+    c.drawString(margin + 10, box_y + 62, "Overview")
+    c.setFont("Helvetica", 9)
+    o_lines = cover.get("overview_lines", [])
+    y = box_y + 46
     for line in o_lines[:5]:
-        c.drawString(margin + 12, y, "• " + line); y -= 16
+        c.drawString(margin + 10, y, "• " + line)
+        y -= 14
 
-    # Executive Summary paragraph on cover page
+    # Executive Summary (bold via Paragraph)
     exec_text = cover.get("exec_summary", "").strip()
     if exec_text:
-        c.setFillColor(navy); c.setFont("Helvetica-Bold", 13)
-        y_title = box_y - 18; c.drawString(margin, y_title, "Executive Summary")
-        frame_top = y_title - 16
+        c.setFillColor(navy); c.setFont("Helvetica-Bold", 12)
+        y_title = box_y - 14
+        c.drawString(margin, y_title, "Executive Summary")
+        # Paragraph frame down to margin
+        frame_top = y_title - 12
         frame_height = frame_top - margin
         frame = Frame(margin, margin, width - 2*margin, frame_height, showBoundary=0)
         para = Paragraph(exec_text, style=body_style)
@@ -1078,30 +1111,64 @@ def build_pdf_report(fig_sections, cover, summary_pages=None):
 
     c.showPage()
 
-    # Summary Pages (optional)
+    # ---------- SUMMARY PAGES ----------
     if summary_pages:
         for sec in summary_pages:
-            title = sec.get("title", "Summary"); para_html = sec.get("paragraph", "")
-            c.setFillColor(navy); c.setFont("Helvetica-Bold", 14)
-            c.drawString(margin, height - margin - 16, title)
-            frame = Frame(margin, margin, width - 2*margin, height - 2*margin - 32, showBoundary=0)
+            title = sec.get("title", "Summary")
+            para_html = sec.get("paragraph", "")
+            c.setFillColor(navy); c.setFont("Helvetica-Bold", 13)
+            c.drawString(margin, height - margin - 10, title)
+            frame = Frame(margin, margin, width - 2*margin, height - 2*margin - 22, showBoundary=0)
             para = Paragraph(para_html, style=body_style)
             frame.addFromList([para], c)
             c.showPage()
 
-    # Chart Pages
-    for title, fig in fig_sections:
+    # ---------- CHART PAGES: 2 per page ----------
+    title_h = 12
+    gap_y = 10
+    max_w = width - 2*margin
+    slot_h = (height - 2*margin - gap_y - 20) / 2.0  # vertical slot for each chart
+
+    def draw_chart_block(title, fig, y_top):
+        # Title
+        c.setFillColor(navy); c.setFont("Helvetica-Bold", 11)
+        c.drawString(margin, y_top - title_h, title)
+        # Image
         png = fig_png_bytes(fig, scale=2)
-        if not png: continue
+        if not png:
+            return
         img = ImageReader(BytesIO(png))
-        max_w = width - 2*margin; max_h = height - 2*margin - 24
-        iw, ih = img.getSize(); scale = min(max_w/iw, max_h/ih); draw_w, draw_h = iw*scale, ih*scale
-        c.setFillColor(navy); c.setFont("Helvetica-Bold", 12)
-        c.drawString(margin, height - margin - 10, title)
-        c.drawImage(img, margin, (height - margin - 24 - draw_h), width=draw_w, height=draw_h, preserveAspectRatio=True, mask='auto')
+        iw, ih = img.getSize()
+        available_h = slot_h - (title_h + 6)
+        scale = min(max_w / iw, max(120, available_h) / ih)
+        draw_w, draw_h = iw * scale, ih * scale
+        draw_h = min(draw_h, available_h)
+        draw_w = min(draw_w, max_w)
+        c.drawImage(img, margin, (y_top - title_h - 6 - draw_h),
+                    width=draw_w, height=draw_h, preserveAspectRatio=True, mask='auto')
+
+    i = 0
+    while i < len(fig_sections):
+        # First block at top
+        y_top_first = height - margin
+        title1, fig1 = fig_sections[i]
+        draw_chart_block(title1, fig1, y_top_first)
+
+        # Second block (if exists)
+        if i + 1 < len(fig_sections):
+            # place second slot lower on page
+            y_top_second = height - margin - slot_h - gap_y - 20
+            title2, fig2 = fig_sections[i + 1]
+            draw_chart_block(title2, fig2, y_top_second)
+            i += 2
+        else:
+            i += 1
+
         c.showPage()
 
-    c.save(); buf.seek(0); return buf.getvalue()
+    c.save()
+    buf.seek(0)
+    return buf.getvalue()
 
 # =========================
 #   PDF Export
