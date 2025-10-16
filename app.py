@@ -215,6 +215,7 @@ def build_pdf_report(fig_sections, cover, summary_pages=None):
       - title, subtitle, daterange
       - metrics: dict(label->value)
       - overview_lines: list[str]
+      - exec_summary: str  <-- Executive Summary shown on FIRST PAGE
     summary_pages: list of dicts like:
       [{"title": "Trip Summary", "paragraph": "..."},
        {"title": "Trip Snapshots", "paragraph": "..."}]
@@ -227,7 +228,7 @@ def build_pdf_report(fig_sections, cover, summary_pages=None):
     width, height = A4
     margin = 36
 
-    # ----- COVER -----
+    # ----- COVER (Page 1) -----
     navy = HexColor("#0F2557")
     light_navy = HexColor("#142F66")
     # Banner
@@ -248,7 +249,7 @@ def build_pdf_report(fig_sections, cover, summary_pages=None):
     if dr:
         c.drawString(margin, height - banner_h + 22, dr)
 
-    # Metric chips
+    # Metric chips (two rows max)
     chips = cover.get("metrics", {})
     chip_w = (width - 2*margin - 20) / 3  # 3 per row
     chip_h = 42
@@ -278,9 +279,34 @@ def build_pdf_report(fig_sections, cover, summary_pages=None):
         c.drawString(margin + 12, y, "• " + line)
         y -= 16
 
+    # Executive Summary (FIRST PAGE)
+    exec_text = cover.get("exec_summary", "").strip()
+    if exec_text:
+        y_exec_title = box_y - 18
+        c.setFillColor(navy)
+        c.setFont("Helvetica-Bold", 13)
+        c.drawString(margin, y_exec_title, "Executive Summary")
+        y_text = y_exec_title - 16
+        c.setFillColor(HexColor("#111111"))
+        c.setFont("Helvetica", 10)
+
+        for line in wrap_text_lines(exec_text, max_chars=100):
+            if y_text < margin + 20:
+                # Continue on next page if it's too long
+                c.showPage()
+                y_text = height - margin - 16
+                c.setFillColor(navy)
+                c.setFont("Helvetica-Bold", 13)
+                c.drawString(margin, y_text, "Executive Summary (cont.)")
+                y_text -= 16
+                c.setFillColor(HexColor("#111111"))
+                c.setFont("Helvetica", 10)
+            c.drawString(margin, y_text, line)
+            y_text -= 14
+
     c.showPage()
 
-    # ----- SUMMARY PAGES -----
+    # ----- SUMMARY PAGES (optional) -----
     if summary_pages:
         for sec in summary_pages:
             title = sec.get("title", "Summary")
@@ -293,18 +319,15 @@ def build_pdf_report(fig_sections, cover, summary_pages=None):
         if not png:
             continue
         img = ImageReader(BytesIO(png))
-        # Fit within page
         max_w = width - 2*margin
         max_h = height - 2*margin - 24
         iw, ih = img.getSize()
         scale = min(max_w/iw, max_h/ih)
         draw_w, draw_h = iw*scale, ih*scale
 
-        # section title
         c.setFillColor(navy)
         c.setFont("Helvetica-Bold", 12)
         c.drawString(margin, height - margin - 10, title)
-
         c.drawImage(img, margin, (height - margin - 24 - draw_h), width=draw_w, height=draw_h, preserveAspectRatio=True, mask='auto')
         c.showPage()
 
@@ -826,6 +849,46 @@ if not filters_summary:
 top_spend = (t.sort_values("total_cost_usd", ascending=False)["trip_name"].head(3).tolist() if len(t) else [])
 top_line = f"Top by total spend: {', '.join(top_spend)}" if top_spend else "Add trips to see top destinations"
 
+# ---------- Executive summary builder ----------
+def build_exec_summary(trips_df: pd.DataFrame, meals_df: pd.DataFrame) -> str:
+    if trips_df is None or len(trips_df) == 0:
+        return "No trips yet. Add your first trip to generate insights."
+
+    trips_cnt = len(trips_df)
+    countries_cnt = trips_df["country"].nunique()
+    total_spend_ = trips_df["total_cost_usd"].sum()
+    med_cpd_ = trips_df["cost_per_day"].median()
+    avg_speed_ = trips_df["internet_speed_mbps"].dropna().mean() if "internet_speed_mbps" in trips_df.columns else float("nan")
+
+    # Top spend trip
+    top_trip = trips_df.sort_values("total_cost_usd", ascending=False).head(1)
+    top_trip_name = top_trip.iloc[0]["trip_name"] if len(top_trip) else None
+
+    # Best average food rating trip
+    best_food_trip = None
+    try:
+        if meals_df is not None and len(meals_df) and "rating_1_10" in meals_df.columns:
+            m = meals_df.dropna(subset=["rating_1_10"]).copy()
+            if len(m):
+                m = m.groupby("trip_id", as_index=False)["rating_1_10"].mean().rename(columns={"rating_1_10":"avg_rating"})
+                m = m.merge(trips_df[["trip_id","trip_name"]], on="trip_id", how="left")
+                m = m.sort_values("avg_rating", ascending=False)
+                if len(m):
+                    best_food_trip = f"{m.iloc[0]['trip_name']} (avg {m.iloc[0]['avg_rating']:.1f}/10)"
+    except Exception:
+        pass
+
+    bits = []
+    bits.append(f"This report summarizes **{trips_cnt} trip{'s' if trips_cnt!=1 else ''}** across **{countries_cnt} countr{'ies' if countries_cnt!=1 else 'y'}**.")
+    bits.append(f"Total spend was **{fmt_money(total_spend_)}**, with a **median cost per day of ${med_cpd_:,.2f}**.")
+    if pd.notnull(avg_speed_):
+        bits.append(f"Average recorded internet speed was **{avg_speed_:,.1f} Mbps**, a proxy for remote-work readiness.")
+    if top_trip_name:
+        bits.append(f"Highest spend: **{top_trip_name}**.")
+    if best_food_trip:
+        bits.append(f"Tastiest trip by average meal rating: **{best_food_trip}**.")
+    return " ".join(bits)
+
 cover_info = {
     "title": "Travel Dashboard Report",
     "subtitle": "Trips, meals, costs & connectivity at a glance",
@@ -842,6 +905,8 @@ cover_info = {
         *filters_summary,
         top_line,
     ],
+    # NEW: Executive summary paragraph displayed on the FIRST PAGE
+    "exec_summary": build_exec_summary(t, meals),
 }
 
 st.markdown("---")
