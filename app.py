@@ -1004,7 +1004,7 @@ if {"trip_id","cuisine","rating_1_10"}.issubset(meals.columns) and len(meals) an
         add_download(fig_cuisine, "food_ratings_cuisines.png", key="dl_cuisine")
         report_sections.append(("Food ratings — avg by cuisine", fig_cuisine))
 
-        # >>> NEW: Avg food rating per trip
+        # Avg food rating per trip (with tooltip)
         avg_by_trip = (
             meals_r.dropna(subset=["rating_1_10"])
                    .groupby(["trip_id","trip_name"], as_index=False)
@@ -1018,6 +1018,14 @@ if {"trip_id","cuisine","rating_1_10"}.issubset(meals.columns) and len(meals) an
                 hover_data=["count"],
                 labels={"trip_name":"Trip","avg_rating":"Avg Rating"},
                 color="avg_rating", color_continuous_scale="Bluered", range_y=[0,10]
+            )
+            # >>> Tooltip added on avg-by-trip chart
+            fig_trip_rating.update_traces(
+                customdata=avg_by_trip[["count"]].to_numpy(),
+                hovertemplate="<b>%{x}</b><br>Avg rating: %{y:.2f}/10"
+                              "<br>Meals counted: %{customdata[0]}"
+                              "<br><span style='font-size:10px'>(Average of all meal ratings 1–10 logged for this trip)</span>"
+                              "<extra></extra>"
             )
             if show_labels:
                 fig_trip_rating.update_traces(text=avg_by_trip["avg_rating"].map(lambda v: f"{v:.1f}"),
@@ -1213,7 +1221,8 @@ if len(t) and "internet_speed_mbps" in t.columns and t["internet_speed_mbps"].no
     if len(score_df) >= 1:
         sp_min, sp_max = score_df["internet_speed_mbps"].min(), score_df["internet_speed_mbps"].max()
         if sp_max > sp_min:
-            score_df["speed_norm"] = (score_df["internet_speed_mbps"] - sp_min) / (sp_max - sp_min)
+            score_df["speed_norm"] = (score_df["internet_speed_mbps"] - sp_min) / (s
+p_max - sp_min)
         else:
             score_df["speed_norm"] = 1.0
 
