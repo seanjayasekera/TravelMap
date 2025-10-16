@@ -1,10 +1,9 @@
 # --- Travel Dashboard (Streamlit) ---
-# Adds tasteful bold emphasis in PDF report via ReportLab Paragraphs.
+# Full app with bold emphasis in PDF executive summaries (exact prior phrasing).
 import os
 import base64
 from io import StringIO as _StringIO, BytesIO
 from datetime import datetime
-import textwrap
 import streamlit as st
 import pandas as pd
 import plotly.express as px
@@ -111,9 +110,8 @@ try:
     from reportlab.lib.pagesizes import A4
     from reportlab.lib.utils import ImageReader
     from reportlab.lib.colors import HexColor
-    # NEW: styled paragraphs for bold emphasis
     from reportlab.platypus import Paragraph, Frame
-    from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
+    from reportlab.lib.styles import ParagraphStyle
     from reportlab.lib.enums import TA_LEFT
     REPORTLAB_OK = True
 except Exception:
@@ -559,19 +557,26 @@ top_spend = (t.sort_values("total_cost_usd", ascending=False)["trip_name"].head(
 top_line = f"Top by total spend: {', '.join(top_spend)}" if top_spend else "Add trips to see top destinations"
 
 # =========================
-#   Executive summary (HTML with <b>...</b>)
+#   Executive summary (exact phrasing, with <b>)
 # =========================
 def build_exec_summary(trips_df: pd.DataFrame, meals_df: pd.DataFrame) -> str:
+    """
+    Exact same phrasing as before; only adds <b>...</b> for bold when rendered via ReportLab Paragraph.
+    """
     if trips_df is None or len(trips_df) == 0:
         return "No trips yet. Add your first trip to generate insights."
+
     trips_cnt = len(trips_df)
     countries_cnt = trips_df["country"].nunique()
     total_spend_ = trips_df["total_cost_usd"].sum()
     med_cpd_ = trips_df["cost_per_day"].median()
     avg_speed_ = trips_df["internet_speed_mbps"].dropna().mean() if "internet_speed_mbps" in trips_df.columns else float("nan")
+
+    # Top spend trip
     top_trip = trips_df.sort_values("total_cost_usd", ascending=False).head(1)
     top_trip_name = top_trip.iloc[0]["trip_name"] if len(top_trip) else None
 
+    # Best average food rating trip
     best_food_trip = None
     try:
         if meals_df is not None and len(meals_df) and "rating_1_10" in meals_df.columns:
@@ -581,20 +586,20 @@ def build_exec_summary(trips_df: pd.DataFrame, meals_df: pd.DataFrame) -> str:
                 m = m.merge(trips_df[["trip_id","trip_name"]], on="trip_id", how="left")
                 m = m.sort_values("avg_rating", ascending=False)
                 if len(m):
-                    best_food_trip = f'{m.iloc[0]["trip_name"]} (avg {m.iloc[0]["avg_rating"]:.1f}/10)'
+                    best_food_trip = f"{m.iloc[0]['trip_name']} (avg {m.iloc[0]['avg_rating']:.1f}/10)"
     except Exception:
         pass
 
     parts = []
     parts.append(f"This report summarizes {trips_cnt} trip{'s' if trips_cnt!=1 else ''} across {countries_cnt} countr{'ies' if countries_cnt!=1 else 'y'}. ")
-    parts.append(f"<b>Total spend:</b> {fmt_money(total_spend_)}. ")
-    parts.append(f"<b>Median cost/day:</b> ${med_cpd_:,.2f}. ")
+    parts.append(f"<b>Total spend was</b> {fmt_money(total_spend_)}")
+    parts.append(f", <b>with a median cost per day of</b> ${med_cpd_:,.2f}. ")
     if pd.notnull(avg_speed_):
-        parts.append(f"<b>Average internet speed:</b> {avg_speed_:,.1f} Mbps. ")
+        parts.append(f"<b>Average recorded internet speed was</b> {avg_speed_:,.1f} Mbps, a proxy for remote-work readiness. ")
     if top_trip_name:
         parts.append(f"<b>Highest spend:</b> {top_trip_name}. ")
     if best_food_trip:
-        parts.append(f"<b>Best average food rating:</b> {best_food_trip}.")
+        parts.append(f"<b>Tastiest trip by average meal rating:</b> {best_food_trip}.")
     return "".join(parts)
 
 cover_info = {
@@ -902,24 +907,138 @@ else:
 st.markdown("---")
 
 # =========================
-#   PDF: Styled paragraphs
+#   Narrative builders (exact phrasing, with <b>)
+# =========================
+def make_single_trip_summary(trip_row: pd.Series, meals_df: pd.DataFrame, norm_basis: pd.DataFrame) -> str:
+    """
+    Exact same phrasing as before; adds <b>...</b> emphasis only.
+    """
+    name = str(trip_row.get("trip_name", "") or "").strip() or "Unnamed Trip"
+    city = str(trip_row.get("primary_city", "") or "").strip()
+    country = str(trip_row.get("country", "") or "").strip()
+    sd = pd.to_datetime(trip_row.get("start_date"), errors="coerce")
+    ed = pd.to_datetime(trip_row.get("end_date"), errors="coerce")
+    days = int(trip_row.get("days") or ((ed - sd).days if pd.notnull(sd) and pd.notnull(ed) else 1) or 1)
+
+    total = trip_row.get("total_cost_usd", 0) or 0
+    cpd = trip_row.get("cost_per_day", 0) or 0
+    tr = trip_row.get("transportation_cost_usd", 0) or 0
+    ac = trip_row.get("accommodation_cost_usd", 0) or 0
+    fo = trip_row.get("food_cost_usd_final", 0) or 0
+    act = trip_row.get("activities_cost_usd", 0) or 0
+
+    spd = trip_row.get("internet_speed_mbps")
+    spd_txt = f"{float(spd):.0f} Mbps" if pd.notnull(spd) else "not recorded"
+
+    # Workability (normalized within current filtered trips)
+    score_txt = "—"
+    try:
+        nb = norm_basis.dropna(subset=["cost_per_day"])
+        if "internet_speed_mbps" in nb.columns and nb["internet_speed_mbps"].notna().any():
+            smin, smax = nb["internet_speed_mbps"].min(), nb["internet_speed_mbps"].max()
+            if pd.notnull(spd) and smax > smin:
+                speed_norm = (spd - smin) / (smax - smin)
+            else:
+                speed_norm = 1.0 if pd.notnull(spd) else 0.0
+        else:
+            speed_norm = 0.0
+
+        inv_cost = 1.0 / trip_row.get("cost_per_day", 0) if trip_row.get("cost_per_day", 0) else float("nan")
+        inv_series = 1.0 / nb["cost_per_day"].replace(0, pd.NA)
+        inv_series = inv_series.dropna()
+        if len(inv_series):
+            cmin, cmax = inv_series.min(), inv_series.max()
+            if pd.notnull(inv_cost) and cmax > cmin:
+                afford_norm = (inv_cost - cmin) / (cmax - cmin)
+            else:
+                afford_norm = 1.0 if pd.notnull(inv_cost) else 0.0
+        else:
+            afford_norm = 0.0
+
+        score = 100 * (0.6 * speed_norm + 0.4 * afford_norm)
+        score_txt = f"{score:.0f}/100"
+    except Exception:
+        pass
+
+    # Meals highlights for this trip
+    m = meals_df.copy()
+    if len(m) and "trip_id" in m.columns:
+        m = m[m["trip_id"] == trip_row.get("trip_id")]
+    avg_rating = None
+    top_dish = None
+    if len(m):
+        if "rating_1_10" in m.columns:
+            try:
+                avg_rating = pd.to_numeric(m["rating_1_10"], errors="coerce").dropna().mean()
+            except Exception:
+                avg_rating = None
+        if {"rating_1_10", "dish_name"}.issubset(m.columns):
+            top = m.dropna(subset=["rating_1_10"]).sort_values("rating_1_10", ascending=False).head(1)
+            if len(top):
+                dn = str(top.iloc[0].get("dish_name") or "").strip()
+                rn = str(top.iloc[0].get("restaurant") or "").strip()
+                if dn:
+                    top_dish = dn + (f" at {rn}" if rn else "")
+
+    date_str = ""
+    sd_valid = pd.notnull(sd)
+    ed_valid = pd.notnull(ed)
+    if sd_valid and ed_valid:
+        date_str = f"in {sd.strftime('%B %Y')}" if sd.year == ed.year and sd.month == ed.month else f"from {sd.strftime('%b %d, %Y')} to {ed.strftime('%b %d, %Y')}"
+
+    parts = []
+    parts.append(f"In {date_str or 'your trip'}, you visited {city}, {country} for {days} day{'s' if days!=1 else ''} on “{name}”. ")
+    parts.append(f"<b>You spent</b> {fmt_money(total)} total (about ${cpd:,.2f}/day), ")
+    parts.append(f"<b>with costs across</b> transportation ({fmt_money(tr)}), accommodation ({fmt_money(ac)}), food ({fmt_money(fo)}), and activities ({fmt_money(act)}). ")
+    parts.append(f"<b>Average internet speed was</b> {spd_txt}, <b>yielding a workability score of</b> {score_txt}. ")
+    if avg_rating is not None:
+        parts.append(f"<b>Your meal ratings averaged</b> {avg_rating:.1f}/10. ")
+    if top_dish:
+        parts.append(f"<b>Top-rated dish:</b> {top_dish}.")
+    return "".join(parts)
+
+def make_multi_trip_snapshots(trips_df: pd.DataFrame, meals_df: pd.DataFrame) -> str:
+    """
+    Exact same bullet phrasing; uses &bull; and <b> for the trip name only.
+    """
+    lines = []
+    for _, r in trips_df.sort_values("start_date").iterrows():
+        name = str(r.get("trip_name", "") or "").strip() or "Unnamed Trip"
+        city = str(r.get("primary_city", "") or "").strip()
+        country = str(r.get("country", "") or "").strip()
+        days = int(r.get("days") or 1)
+        total = r.get("total_cost_usd", 0) or 0
+        cpd = r.get("cost_per_day", 0) or 0
+        spd = r.get("internet_speed_mbps")
+        spd_txt = f"{float(spd):.0f} Mbps" if pd.notnull(spd) else "—"
+        lines.append(
+            f"&bull; <b>{name}</b> — {city}, {country} ({days} days): {fmt_money(total)} total, ${cpd:,.0f}/day; internet {spd_txt}."
+        )
+    return "<br/>".join(lines) if lines else "Add trips to see snapshots."
+
+# =========================
+#   PDF Export (styled paragraphs)
 # =========================
 def build_pdf_report(fig_sections, cover, summary_pages=None):
     if not (KALEIDO_OK and REPORTLAB_OK):
         return None
 
     buf = BytesIO()
+    from reportlab.pdfgen import canvas as rl_canvas  # ensure import in this scope for some hosts
+    from reportlab.lib.pagesizes import A4
+    from reportlab.lib.utils import ImageReader
+    from reportlab.lib.colors import HexColor
+    from reportlab.platypus import Paragraph, Frame
+    from reportlab.lib.styles import ParagraphStyle
+    from reportlab.lib.enums import TA_LEFT
+
     c = rl_canvas.Canvas(buf, pagesize=A4)
     width, height = A4; margin = 36
     navy = HexColor("#0F2557"); light_navy = HexColor("#142F66")
 
-    # Styles for Paragraphs
-    body_style = ParagraphStyle(
-        "Body", fontName="Helvetica", fontSize=10.5, leading=14, alignment=TA_LEFT, textColor=HexColor("#111111")
-    )
-    title_style = ParagraphStyle("Title", fontName="Helvetica-Bold", fontSize=13, leading=16, textColor=navy)
+    body_style = ParagraphStyle("Body", fontName="Helvetica", fontSize=10.5, leading=14, alignment=TA_LEFT, textColor=HexColor("#111111"))
 
-    # --- COVER (Page 1) ---
+    # COVER
     banner_h = 110
     c.setFillColor(navy); c.setStrokeColor(navy); c.rect(0, height - banner_h, width, banner_h, fill=1, stroke=0)
     c.setFillColor(HexColor("#FFFFFF")); c.setFont("Helvetica-Bold", 24)
@@ -938,7 +1057,6 @@ def build_pdf_report(fig_sections, cover, summary_pages=None):
         x = margin + col * (chip_w + 10); y = rows[row]
         draw_metric_chip(c, x, y, chip_w, chip_h, label, str(value))
 
-    # Overview box
     box_y = rows[1] - 110 if len(labels) > 3 else rows[0] - 110
     c.setFillColor(light_navy); c.roundRect(margin, box_y, width - 2*margin, 100, 10, fill=1, stroke=0)
     c.setFillColor(HexColor("#FFFFFF")); c.setFont("Helvetica-Bold", 13); c.drawString(margin + 12, box_y + 78, "Overview")
@@ -947,35 +1065,31 @@ def build_pdf_report(fig_sections, cover, summary_pages=None):
     for line in o_lines[:5]:
         c.drawString(margin + 12, y, "• " + line); y -= 16
 
-    # Executive Summary (FIRST PAGE) using Paragraph
+    # Executive Summary paragraph on cover page
     exec_text = cover.get("exec_summary", "").strip()
     if exec_text:
-        # Title
         c.setFillColor(navy); c.setFont("Helvetica-Bold", 13)
         y_title = box_y - 18; c.drawString(margin, y_title, "Executive Summary")
-        # Paragraph frame area
         frame_top = y_title - 16
-        frame_height = frame_top - margin  # down to margin
+        frame_height = frame_top - margin
         frame = Frame(margin, margin, width - 2*margin, frame_height, showBoundary=0)
         para = Paragraph(exec_text, style=body_style)
         frame.addFromList([para], c)
 
     c.showPage()
 
-    # --- SUMMARY PAGES (optional), also Paragraph-based with bold labels ---
+    # Summary Pages (optional)
     if summary_pages:
         for sec in summary_pages:
             title = sec.get("title", "Summary"); para_html = sec.get("paragraph", "")
-            # Title
             c.setFillColor(navy); c.setFont("Helvetica-Bold", 14)
             c.drawString(margin, height - margin - 16, title)
-            # Body paragraph block
             frame = Frame(margin, margin, width - 2*margin, height - 2*margin - 32, showBoundary=0)
             para = Paragraph(para_html, style=body_style)
             frame.addFromList([para], c)
             c.showPage()
 
-    # --- CHART PAGES ---
+    # Chart Pages
     for title, fig in fig_sections:
         png = fig_png_bytes(fig, scale=2)
         if not png: continue
@@ -988,91 +1102,6 @@ def build_pdf_report(fig_sections, cover, summary_pages=None):
         c.showPage()
 
     c.save(); buf.seek(0); return buf.getvalue()
-
-# =========================
-#   Narrative builders (HTML with <b>)
-# =========================
-def make_single_trip_summary(trip_row: pd.Series, meals_df: pd.DataFrame, norm_basis: pd.DataFrame) -> str:
-    name = str(trip_row.get("trip_name", "") or "").strip() or "Unnamed Trip"
-    city = str(trip_row.get("primary_city", "") or "").strip()
-    country = str(trip_row.get("country", "") or "").strip()
-    sd = pd.to_datetime(trip_row.get("start_date"), errors="coerce")
-    ed = pd.to_datetime(trip_row.get("end_date"), errors="coerce")
-    days = int(trip_row.get("days") or ((ed - sd).days if pd.notnull(sd) and pd.notnull(ed) else 1) or 1)
-
-    total = trip_row.get("total_cost_usd", 0) or 0
-    cpd = trip_row.get("cost_per_day", 0) or 0
-    tr = trip_row.get("transportation_cost_usd", 0) or 0
-    ac = trip_row.get("accommodation_cost_usd", 0) or 0
-    fo = trip_row.get("food_cost_usd_final", 0) or 0
-    act = trip_row.get("activities_cost_usd", 0) or 0
-
-    spd = trip_row.get("internet_speed_mbps")
-    spd_txt = f"{float(spd):.0f} Mbps" if pd.notnull(spd) else "not recorded"
-
-    # Workability score (normalized within current view)
-    score_txt = "—"
-    try:
-        nb = norm_basis.dropna(subset=["cost_per_day"])
-        if "internet_speed_mbps" in nb.columns and nb["internet_speed_mbps"].notna().any():
-            smin, smax = nb["internet_speed_mbps"].min(), nb["internet_speed_mbps"].max()
-            speed_norm = (spd - smin) / (smax - smin) if (pd.notnull(spd) and smax > smin) else (1.0 if pd.notnull(spd) else 0.0)
-        else:
-            speed_norm = 0.0
-        inv_cost = 1.0 / trip_row.get("cost_per_day", 0) if trip_row.get("cost_per_day", 0) else float("nan")
-        inv_series = (1.0 / nb["cost_per_day"].replace(0, pd.NA)).dropna()
-        if len(inv_series):
-            cmin, cmax = inv_series.min(), inv_series.max()
-            afford_norm = (inv_cost - cmin) / (cmax - cmin) if (pd.notnull(inv_cost) and cmax > cmin) else (1.0 if pd.notnull(inv_cost) else 0.0)
-        else:
-            afford_norm = 0.0
-        score = 100 * (0.6 * speed_norm + 0.4 * afford_norm)
-        score_txt = f"{score:.0f}/100"
-    except Exception:
-        pass
-
-    # Meals highlights
-    m = meals_df.copy()
-    if len(m) and "trip_id" in m.columns:
-        m = m[m["trip_id"] == trip_row.get("trip_id")]
-    avg_rating = None; top_dish = None
-    if len(m):
-        if "rating_1_10" in m.columns:
-            try: avg_rating = pd.to_numeric(m["rating_1_10"], errors="coerce").dropna().mean()
-            except Exception: avg_rating = None
-        if {"rating_1_10","dish_name"}.issubset(m.columns):
-            top = m.dropna(subset=["rating_1_10"]).sort_values("rating_1_10", ascending=False).head(1)
-            if len(top):
-                dn = str(top.iloc[0].get("dish_name") or "").strip()
-                rn = str(top.iloc[0].get("restaurant") or "").strip()
-                if dn: top_dish = dn + (f" at {rn}" if rn else "")
-
-    date_str = ""
-    if pd.notnull(sd) and pd.notnull(ed):
-        date_str = f"in {sd.strftime('%B %Y')}" if sd.year == ed.year and sd.month == ed.month else f"from {sd.strftime('%b %d, %Y')} to {ed.strftime('%b %d, %Y')}"
-
-    parts = []
-    parts.append(f'In {date_str or "your trip"}, you visited {city}, {country} for {days} day{"s" if days!=1 else ""} on "{name}". ')
-    parts.append(f"<b>Total spend:</b> {fmt_money(total)} (about ${cpd:,.2f}/day). ")
-    parts.append(f"<b>Breakdown:</b> transport {fmt_money(tr)}, accommodation {fmt_money(ac)}, food {fmt_money(fo)}, activities {fmt_money(act)}. ")
-    parts.append(f"<b>Average internet speed:</b> {spd_txt}, <b>workability score:</b> {score_txt}. ")
-    if avg_rating is not None: parts.append(f"<b>Avg meal rating:</b> {avg_rating:.1f}/10. ")
-    if top_dish: parts.append(f"<b>Top-rated dish:</b> {top_dish}.")
-    return "".join(parts)
-
-def make_multi_trip_snapshots(trips_df: pd.DataFrame, meals_df: pd.DataFrame) -> str:
-    lines = []
-    for _, r in trips_df.sort_values("start_date").iterrows():
-        name = str(r.get("trip_name", "") or "").strip() or "Unnamed Trip"
-        city = str(r.get("primary_city", "") or "").strip()
-        country = str(r.get("country", "") or "").strip()
-        days = int(r.get("days") or 1)
-        total = r.get("total_cost_usd", 0) or 0
-        cpd = r.get("cost_per_day", 0) or 0
-        spd = r.get("internet_speed_mbps")
-        spd_txt = f"{float(spd):.0f} Mbps" if pd.notnull(spd) else "—"
-        lines.append(f"&bull; <b>{name}</b> — {city}, {country} ({days} days): {fmt_money(total)} total, ${cpd:,.0f}/day; internet {spd_txt}.")
-    return "<br/>".join(lines) if lines else "Add trips to see snapshots."
 
 # =========================
 #   PDF Export
