@@ -942,7 +942,7 @@ else:
 st.markdown("---")
 
 # =========================
-#   FOOD RATINGS (table + cuisine chart)
+#   FOOD RATINGS (table + cuisine chart + avg per trip)
 # =========================
 st.subheader("🍴 Food Ratings")
 if {"trip_id","cuisine","rating_1_10"}.issubset(meals.columns) and len(meals) and len(t):
@@ -983,6 +983,7 @@ if {"trip_id","cuisine","rating_1_10"}.issubset(meals.columns) and len(meals) an
         except TypeError:
             st.dataframe(table_df, use_container_width=True)
 
+        # Average rating by cuisine
         top_cuisines = (
             meals_r.dropna(subset=["cuisine","rating_1_10"])
                    .groupby("cuisine", as_index=False)
@@ -1002,6 +1003,32 @@ if {"trip_id","cuisine","rating_1_10"}.issubset(meals.columns) and len(meals) an
         st.plotly_chart(fig_cuisine, use_container_width=True, config=PLOTLY_CONFIG)
         add_download(fig_cuisine, "food_ratings_cuisines.png", key="dl_cuisine")
         report_sections.append(("Food ratings — avg by cuisine", fig_cuisine))
+
+        # >>> NEW: Avg food rating per trip
+        avg_by_trip = (
+            meals_r.dropna(subset=["rating_1_10"])
+                   .groupby(["trip_id","trip_name"], as_index=False)
+                   .agg(avg_rating=("rating_1_10","mean"), count=("rating_1_10","size"))
+                   .sort_values(["avg_rating","count"], ascending=[False, False])
+        )
+        if len(avg_by_trip):
+            st.write("**Average food rating per trip**")
+            fig_trip_rating = px.bar(
+                avg_by_trip, x="trip_name", y="avg_rating",
+                hover_data=["count"],
+                labels={"trip_name":"Trip","avg_rating":"Avg Rating"},
+                color="avg_rating", color_continuous_scale="Bluered", range_y=[0,10]
+            )
+            if show_labels:
+                fig_trip_rating.update_traces(text=avg_by_trip["avg_rating"].map(lambda v: f"{v:.1f}"),
+                                              textposition="outside", cliponaxis=False)
+            fig_trip_rating.update_layout(xaxis_tickangle=-20)
+            apply_common_layout(fig_trip_rating)
+            st.plotly_chart(fig_trip_rating, use_container_width=True, config=PLOTLY_CONFIG)
+            add_download(fig_trip_rating, "avg_food_rating_per_trip.png", key="dl_trip_rating")
+            report_sections.append(("Average food rating per trip", fig_trip_rating))
+        else:
+            st.info("No meal ratings yet to compute averages per trip.")
 else:
     st.info("Add meals (and at least one trip) to see Food Ratings.")
 
@@ -1288,7 +1315,9 @@ def make_single_trip_summary(trip_row: pd.Series, meals_df: pd.DataFrame, norm_b
                     top_dish = dn + (f" at {rn}" if rn else "")
 
     date_str = ""
-    if pd.notnull(sd) and pd.notnull(ed):
+    sd_valid = pd.notnull(sd)
+    ed_valid = pd.notnull(ed)
+    if sd_valid and ed_valid:
         date_str = f"in {sd.strftime('%B %Y')}" if sd.year == ed.year and sd.month == ed.month else f"from {sd.strftime('%b %d, %Y')} to {ed.strftime('%b %d, %Y')}"
 
     parts = []
