@@ -1,6 +1,6 @@
 # --- Travel Dashboard (Streamlit) ---
-# Full app with compact PDF export (2 charts/page), Executive+Summary on same page,
-# and a sepia globe watermark on the first PDF page.
+# Full app with compact PDF export (2 charts/page) and Executive+Summary on same page.
+# Globe watermark has been REMOVED.
 
 import os
 import base64
@@ -1001,7 +1001,7 @@ def make_multi_trip_snapshots(trips_df: pd.DataFrame, meals_df: pd.DataFrame) ->
     return "<br/>".join(lines) if lines else "Add trips to see snapshots."
 
 # =========================
-#   PDF Export (COMPACT LAYOUT + Watermark + Exec+Summary same page)
+#   PDF Export (COMPACT LAYOUT, Exec+Summary same page, NO watermark)
 # =========================
 def build_pdf_report(fig_sections, cover, summary_pages=None):
     """
@@ -1010,7 +1010,6 @@ def build_pdf_report(fig_sections, cover, summary_pages=None):
       - Executive Summary + FIRST summary (Trip Summary/Snapshots) on SAME page
       - Any additional summaries onto next pages
       - Charts: exactly 2 per page, stacked, tight margins
-      - Adds a subtle sepia globe watermark to the first page content area
     """
     if not (KALEIDO_OK and REPORTLAB_OK):
         return None
@@ -1031,8 +1030,6 @@ def build_pdf_report(fig_sections, cover, summary_pages=None):
     margin = 24
     navy = HexColor("#0F2557")
     light_navy = HexColor("#142F66")
-    sepia_fill = HexColor("#EFE6DA")
-    sepia_stroke = HexColor("#D1C6B8")
     body_style = ParagraphStyle("Body", fontName="Helvetica", fontSize=10.5, leading=14,
                                 alignment=TA_LEFT, textColor=HexColor("#111111"))
 
@@ -1045,33 +1042,6 @@ def build_pdf_report(fig_sections, cover, summary_pages=None):
     subline = cover.get("subtitle", ""); dr = cover.get("daterange", "")
     if subline: c.drawString(margin, height - banner_h + 38, subline)
     if dr: c.drawString(margin, height - banner_h + 22, dr)
-
-    # ---------- WATERMARK (sepia globe) behind content ----------
-    # Draw a big, faint circle + a few meridian/parallels with very light sepia colors.
-    def draw_sepia_globe(cx, cy, r):
-        c.saveState()
-        c.setLineWidth(1)
-        # Outer circle
-        c.setStrokeColor(sepia_stroke)
-        c.setFillColor(sepia_fill)
-        c.circle(cx, cy, r, stroke=1, fill=1)
-        # Meridians (simple vertical ellipses)
-        for k in [-0.6, -0.3, 0.0, 0.3, 0.6]:
-            c.setStrokeColor(sepia_stroke)
-            w = r * (1 - abs(k) * 0.35)
-            c.ellipse(cx - w, cy - r, cx + w, cy + r, stroke=1, fill=0)
-        # Parallels (horizontal lines across circle)
-        for frac in [-0.6, -0.3, 0.0, 0.3, 0.6]:
-            y = cy + frac * r
-            x_off = (r**2 - (frac*r)**2) ** 0.5  # chord half-length
-            c.line(cx - x_off, y, cx + x_off, y)
-        c.restoreState()
-
-    # Position the watermark in the body area (not under banner)
-    wm_cx = width * 0.72
-    wm_cy = (height - banner_h) * 0.52
-    wm_r  = 120
-    draw_sepia_globe(wm_cx, wm_cy, wm_r)
 
     # ---------- KPI chips ----------
     chips = cover.get("metrics", {})
