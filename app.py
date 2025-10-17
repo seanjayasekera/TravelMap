@@ -1,5 +1,6 @@
 # --- Travel Dashboard (Streamlit) ---
-# Full app with compact PDF export (2 charts/page), bolded executive summary, and all current features.
+# Full app with compact PDF export (2 charts/page), Executive+Summary on same page,
+# and a sepia globe watermark on the first PDF page.
 
 import os
 import base64
@@ -132,16 +133,6 @@ def add_download(fig, filename, key):
     png = fig_png_bytes(fig)
     if png:
         st.download_button("⬇️ Download PNG", data=png, file_name=filename, mime="image/png", key=key)
-
-def draw_metric_chip(c, x, y, w, h, label, value, chip_color="#0F2557", text_light="#FFFFFF", text_dim="#DDE4F2"):
-    c.setFillColor(HexColor(chip_color)); c.setStrokeColor(HexColor(chip_color))
-    c.roundRect(x, y, w, h, 8, stroke=0, fill=1)
-    c.setFillColor(HexColor(text_dim)); c.setFont("Helvetica", 9); c.drawString(x + 10, y + h - 14, label)
-    c.setFillColor(HexColor(text_light)); c.setFont("Helvetica-Bold", 16); c.drawString(x + 10, y + h - 34, value)
-
-def apply_common_layout(fig, height=420):
-    fig.update_layout(template="simple_white", height=height, margin=dict(t=30, r=10, l=10, b=10), coloraxis_showscale=False)
-    return fig
 
 def df_to_csv_bytes(df: pd.DataFrame) -> bytes:
     buf = _StringIO(); df.to_csv(buf, index=False); return buf.getvalue().encode("utf-8")
@@ -561,9 +552,6 @@ top_line = f"Top by total spend: {', '.join(top_spend)}" if top_spend else "Add 
 #   Executive summary (exact phrasing, with <b>)
 # =========================
 def build_exec_summary(trips_df: pd.DataFrame, meals_df: pd.DataFrame) -> str:
-    """
-    Exact same phrasing as before; only adds <b>...</b> for bold when rendered via ReportLab Paragraph.
-    """
     if trips_df is None or len(trips_df) == 0:
         return "No trips yet. Add your first trip to generate insights."
 
@@ -573,11 +561,9 @@ def build_exec_summary(trips_df: pd.DataFrame, meals_df: pd.DataFrame) -> str:
     med_cpd_ = trips_df["cost_per_day"].median()
     avg_speed_ = trips_df["internet_speed_mbps"].dropna().mean() if "internet_speed_mbps" in trips_df.columns else float("nan")
 
-    # Top spend trip
     top_trip = trips_df.sort_values("total_cost_usd", ascending=False).head(1)
     top_trip_name = top_trip.iloc[0]["trip_name"] if len(top_trip) else None
 
-    # Best average food rating trip
     best_food_trip = None
     try:
         if meals_df is not None and len(meals_df) and "rating_1_10" in meals_df.columns:
@@ -662,7 +648,8 @@ with col2:
             fig_cost.update_traces(text=df_total["total_cost_usd"].map(lambda v: f"${v:,.0f}"), textposition="outside", cliponaxis=False)
         fig_cost.update_traces(hovertemplate="<b>%{x}</b><br>%{y:,.0f}<extra></extra>")
         fig_cost.update_layout(xaxis_tickangle=-20)
-        st.plotly_chart(apply_common_layout(fig_cost, height=450), use_container_width=True, config=PLOTLY_CONFIG)
+        fig_cost.update_layout(margin=dict(t=30))
+        st.plotly_chart(fig_cost, use_container_width=True, config=PLOTLY_CONFIG)
         add_download(fig_cost, "total_spend.png", key="dl_total")
         report_sections.append(("Total spend per trip", fig_cost))
     else:
@@ -679,7 +666,8 @@ if len(t):
     if show_labels:
         fig_cpd.update_traces(text=df_cpd["cost_per_day"].map(lambda v: f"${v:,.2f}"), textposition="outside", cliponaxis=False)
     fig_cpd.update_traces(hovertemplate="<b>%{y}</b><br>%{x:,.2f}<extra></extra>")
-    st.plotly_chart(apply_common_layout(fig_cpd, height=520), use_container_width=True, config=PLOTLY_CONFIG)
+    fig_cpd.update_layout(margin=dict(t=30))
+    st.plotly_chart(fig_cpd, use_container_width=True, config=PLOTLY_CONFIG)
     add_download(fig_cpd, "cost_per_day.png", key="dl_cpd")
     report_sections.append(("Cost per day leaderboard", fig_cpd))
 else:
@@ -719,8 +707,8 @@ if {"trip_id","cuisine","rating_1_10"}.issubset(meals.columns) and len(meals) an
                              color_continuous_scale="Viridis", range_y=[0,10])
         if show_labels:
             fig_cuisine.update_traces(text=top_cuisines["avg_rating"].map(lambda v: f"{v:.1f}"), textposition="outside", cliponaxis=False)
-        fig_cuisine.update_layout(xaxis_tickangle=-30)
-        st.plotly_chart(apply_common_layout(fig_cuisine), use_container_width=True, config=PLOTLY_CONFIG)
+        fig_cuisine.update_layout(xaxis_tickangle=-30, margin=dict(t=30))
+        st.plotly_chart(fig_cuisine, use_container_width=True, config=PLOTLY_CONFIG)
         add_download(fig_cuisine, "food_ratings_cuisines.png", key="dl_cuisine")
         report_sections.append(("Food ratings — avg by cuisine", fig_cuisine))
 
@@ -739,8 +727,8 @@ if {"trip_id","cuisine","rating_1_10"}.issubset(meals.columns) and len(meals) an
             )
             if show_labels:
                 fig_trip_rating.update_traces(text=avg_by_trip["avg_rating"].map(lambda v: f"{v:.1f}"), textposition="outside", cliponaxis=False)
-            fig_trip_rating.update_layout(xaxis_tickangle=-20)
-            st.plotly_chart(apply_common_layout(fig_trip_rating), use_container_width=True, config=PLOTLY_CONFIG)
+            fig_trip_rating.update_layout(xaxis_tickangle=-20, margin=dict(t=30))
+            st.plotly_chart(fig_trip_rating, use_container_width=True, config=PLOTLY_CONFIG)
             add_download(fig_trip_rating, "avg_food_rating_per_trip.png", key="dl_trip_rating")
             report_sections.append(("Average food rating per trip", fig_trip_rating))
         else:
@@ -760,8 +748,8 @@ if "transportation_cost_usd" in t.columns and len(t) and t["transportation_cost_
     if show_labels:
         fig_transport.update_traces(text=df_tr["transportation_cost_usd"].fillna(0).map(lambda v: f"${v:,.0f}"), textposition="outside", cliponaxis=False)
     fig_transport.update_traces(hovertemplate="<b>%{x}</b><br>%{y:,.0f}<extra></extra>")
-    fig_transport.update_layout(xaxis_tickangle=-20)
-    st.plotly_chart(apply_common_layout(fig_transport), use_container_width=True, config=PLOTLY_CONFIG)
+    fig_transport.update_layout(xaxis_tickangle=-20, margin=dict(t=30))
+    st.plotly_chart(fig_transport, use_container_width=True, config=PLOTLY_CONFIG)
     add_download(fig_transport, "transportation.png", key="dl_transport")
     report_sections.append(("Transportation spend per trip", fig_transport))
 else:
@@ -776,8 +764,8 @@ if "food_cost_usd_final" in t.columns and len(t):
     if show_labels:
         fig_food.update_traces(text=df_food["food_cost_usd_final"].map(lambda v: f"${v:,.0f}"), textposition="outside", cliponaxis=False)
     fig_food.update_traces(hovertemplate="<b>%{x}</b><br>%{y:,.0f}<extra></extra>")
-    fig_food.update_layout(xaxis_tickangle=-20)
-    st.plotly_chart(apply_common_layout(fig_food), use_container_width=True, config=PLOTLY_CONFIG)
+    fig_food.update_layout(xaxis_tickangle=-20, margin=dict(t=30))
+    st.plotly_chart(fig_food, use_container_width=True, config=PLOTLY_CONFIG)
     add_download(fig_food, "food_spend.png", key="dl_food")
     report_sections.append(("Food spend per trip", fig_food))
 else:
@@ -792,8 +780,8 @@ if "accommodation_cost_usd" in t.columns and len(t) and t["accommodation_cost_us
     if show_labels:
         fig_accom.update_traces(text=df_ac["accommodation_cost_usd"].fillna(0).map(lambda v: f"${v:,.0f}"), textposition="outside", cliponaxis=False)
     fig_accom.update_traces(hovertemplate="<b>%{x}</b><br>%{y:,.0f}<extra></extra>")
-    fig_accom.update_layout(xaxis_tickangle=-20)
-    st.plotly_chart(apply_common_layout(fig_accom), use_container_width=True, config=PLOTLY_CONFIG)
+    fig_accom.update_layout(xaxis_tickangle=-20, margin=dict(t=30))
+    st.plotly_chart(fig_accom, use_container_width=True, config=PLOTLY_CONFIG)
     add_download(fig_accom, "accommodation.png", key="dl_accom")
     report_sections.append(("Accommodation spend per trip", fig_accom))
 else:
@@ -808,8 +796,8 @@ if "activities_cost_usd" in t.columns and len(t) and t["activities_cost_usd"].no
     if show_labels:
         fig_activities.update_traces(text=df_act["activities_cost_usd"].fillna(0).map(lambda v: f"${v:,.0f}"), textposition="outside", cliponaxis=False)
     fig_activities.update_traces(hovertemplate="<b>%{x}</b><br>%{y:,.0f}<extra></extra>")
-    fig_activities.update_layout(xaxis_tickangle=-20)
-    st.plotly_chart(apply_common_layout(fig_activities), use_container_width=True, config=PLOTLY_CONFIG)
+    fig_activities.update_layout(xaxis_tickangle=-20, margin=dict(t=30))
+    st.plotly_chart(fig_activities, use_container_width=True, config=PLOTLY_CONFIG)
     add_download(fig_activities, "activities_spend.png", key="dl_activities")
     report_sections.append(("Activities spend per trip", fig_activities))
 else:
@@ -865,7 +853,8 @@ if len(t) and "internet_speed_mbps" in t.columns and t["internet_speed_mbps"].no
                      labels={"internet_speed_mbps":"Mbps","trip_name":"Trip"},
                      color="internet_speed_mbps", color_continuous_scale="RdYlGn")
     fig_net.update_traces(hovertemplate="<b>%{y}</b><br>%{x:.1f} Mbps<extra></extra>")
-    st.plotly_chart(apply_common_layout(fig_net, height=420), use_container_width=True, config=PLOTLY_CONFIG)
+    fig_net.update_layout(margin=dict(t=30))
+    st.plotly_chart(fig_net, use_container_width=True, config=PLOTLY_CONFIG)
     add_download(fig_net, "internet_speed.png", key="dl_net_dn")
     report_sections.append(("Average Internet Speed by Trip", fig_net))
 
@@ -878,7 +867,8 @@ if len(t) and "internet_speed_mbps" in t.columns and t["internet_speed_mbps"].no
         fig_country = px.bar(country_speed, x="country", y="avg_speed_mbps",
                              labels={"country":"Country","avg_speed_mbps":"Avg Mbps"},
                              color="avg_speed_mbps", color_continuous_scale="RdYlGn")
-        st.plotly_chart(apply_common_layout(fig_country), use_container_width=True, config=PLOTLY_CONFIG)
+        fig_country.update_layout(margin=dict(t=30))
+        st.plotly_chart(fig_country, use_container_width=True, config=PLOTLY_CONFIG)
         add_download(fig_country, "country_avg_speed.png", key="dl_country_speed")
         report_sections.append(("Average internet speed by country", fig_country))
 
@@ -899,7 +889,8 @@ if len(t) and "internet_speed_mbps" in t.columns and t["internet_speed_mbps"].no
         fig_work = px.bar(top5, x="workability_score", y="trip_name", orientation="h",
                           labels={"workability_score":"Score","trip_name":"Trip"},
                           color="workability_score", color_continuous_scale="RdYlGn")
-        st.plotly_chart(apply_common_layout(fig_work, height=400), use_container_width=True, config=PLOTLY_CONFIG)
+        fig_work.update_layout(margin=dict(t=30))
+        st.plotly_chart(fig_work, use_container_width=True, config=PLOTLY_CONFIG)
         add_download(fig_work, "top_remote_work_destinations.png", key="dl_workability")
         report_sections.append(("Top 5 remote-work destinations (workability score)", fig_work))
 else:
@@ -911,9 +902,6 @@ st.markdown("---")
 #   Narrative builders (exact phrasing, with <b>)
 # =========================
 def make_single_trip_summary(trip_row: pd.Series, meals_df: pd.DataFrame, norm_basis: pd.DataFrame) -> str:
-    """
-    Exact same phrasing as before; adds <b>...</b> emphasis only.
-    """
     name = str(trip_row.get("trip_name", "") or "").strip() or "Unnamed Trip"
     city = str(trip_row.get("primary_city", "") or "").strip()
     country = str(trip_row.get("country", "") or "").strip()
@@ -931,7 +919,6 @@ def make_single_trip_summary(trip_row: pd.Series, meals_df: pd.DataFrame, norm_b
     spd = trip_row.get("internet_speed_mbps")
     spd_txt = f"{float(spd):.0f} Mbps" if pd.notnull(spd) else "not recorded"
 
-    # Workability (normalized within current filtered trips)
     score_txt = "—"
     try:
         nb = norm_basis.dropna(subset=["cost_per_day"])
@@ -961,7 +948,6 @@ def make_single_trip_summary(trip_row: pd.Series, meals_df: pd.DataFrame, norm_b
     except Exception:
         pass
 
-    # Meals highlights for this trip
     m = meals_df.copy()
     if len(m) and "trip_id" in m.columns:
         m = m[m["trip_id"] == trip_row.get("trip_id")]
@@ -999,9 +985,6 @@ def make_single_trip_summary(trip_row: pd.Series, meals_df: pd.DataFrame, norm_b
     return "".join(parts)
 
 def make_multi_trip_snapshots(trips_df: pd.DataFrame, meals_df: pd.DataFrame) -> str:
-    """
-    Exact same bullet phrasing; uses &bull; and <b> for the trip name only.
-    """
     lines = []
     for _, r in trips_df.sort_values("start_date").iterrows():
         name = str(r.get("trip_name", "") or "").strip() or "Unnamed Trip"
@@ -1018,14 +1001,16 @@ def make_multi_trip_snapshots(trips_df: pd.DataFrame, meals_df: pd.DataFrame) ->
     return "<br/>".join(lines) if lines else "Add trips to see snapshots."
 
 # =========================
-#   PDF Export (COMPACT LAYOUT: exactly 2 charts/page)
+#   PDF Export (COMPACT LAYOUT + Watermark + Exec+Summary same page)
 # =========================
 def build_pdf_report(fig_sections, cover, summary_pages=None):
     """
     Compact PDF layout:
-      - Cover with exec summary
-      - Optional summary pages
-      - Charts: exactly 2 per page, stacked, tight margins (minimal whitespace)
+      - Cover header + metrics + overview
+      - Executive Summary + FIRST summary (Trip Summary/Snapshots) on SAME page
+      - Any additional summaries onto next pages
+      - Charts: exactly 2 per page, stacked, tight margins
+      - Adds a subtle sepia globe watermark to the first page content area
     """
     if not (KALEIDO_OK and REPORTLAB_OK):
         return None
@@ -1046,10 +1031,12 @@ def build_pdf_report(fig_sections, cover, summary_pages=None):
     margin = 24
     navy = HexColor("#0F2557")
     light_navy = HexColor("#142F66")
+    sepia_fill = HexColor("#EFE6DA")
+    sepia_stroke = HexColor("#D1C6B8")
     body_style = ParagraphStyle("Body", fontName="Helvetica", fontSize=10.5, leading=14,
                                 alignment=TA_LEFT, textColor=HexColor("#111111"))
 
-    # ---------- COVER ----------
+    # ---------- COVER HEADER ----------
     banner_h = 96
     c.setFillColor(navy); c.rect(0, height - banner_h, width, banner_h, fill=1, stroke=0)
     c.setFillColor(HexColor("#FFFFFF")); c.setFont("Helvetica-Bold", 22)
@@ -1059,9 +1046,37 @@ def build_pdf_report(fig_sections, cover, summary_pages=None):
     if subline: c.drawString(margin, height - banner_h + 38, subline)
     if dr: c.drawString(margin, height - banner_h + 22, dr)
 
-    # Chips
+    # ---------- WATERMARK (sepia globe) behind content ----------
+    # Draw a big, faint circle + a few meridian/parallels with very light sepia colors.
+    def draw_sepia_globe(cx, cy, r):
+        c.saveState()
+        c.setLineWidth(1)
+        # Outer circle
+        c.setStrokeColor(sepia_stroke)
+        c.setFillColor(sepia_fill)
+        c.circle(cx, cy, r, stroke=1, fill=1)
+        # Meridians (simple vertical ellipses)
+        for k in [-0.6, -0.3, 0.0, 0.3, 0.6]:
+            c.setStrokeColor(sepia_stroke)
+            w = r * (1 - abs(k) * 0.35)
+            c.ellipse(cx - w, cy - r, cx + w, cy + r, stroke=1, fill=0)
+        # Parallels (horizontal lines across circle)
+        for frac in [-0.6, -0.3, 0.0, 0.3, 0.6]:
+            y = cy + frac * r
+            x_off = (r**2 - (frac*r)**2) ** 0.5  # chord half-length
+            c.line(cx - x_off, y, cx + x_off, y)
+        c.restoreState()
+
+    # Position the watermark in the body area (not under banner)
+    wm_cx = width * 0.72
+    wm_cy = (height - banner_h) * 0.52
+    wm_r  = 120
+    draw_sepia_globe(wm_cx, wm_cy, wm_r)
+
+    # ---------- KPI chips ----------
     chips = cover.get("metrics", {})
-    chip_w = (width - 2*margin - 16) / 3.0; chip_h = 38
+    chip_w = (width - 2*margin - 16) / 3.0
+    chip_h = 38
     rows_y = [height - banner_h - 16 - chip_h, height - banner_h - 16 - 2*(chip_h + 8)]
     labels = list(chips.keys()); values = [chips[k] for k in labels]
     def _chip(x, y, w, h, label, value):
@@ -1072,7 +1087,7 @@ def build_pdf_report(fig_sections, cover, summary_pages=None):
         r = 0 if i < 3 else 1; col = i % 3
         x = margin + col * (chip_w + 8); y = rows_y[r]; _chip(x, y, chip_w, chip_h, lab, val)
 
-    # Overview box
+    # ---------- Overview box ----------
     box_y = rows_y[1] - 92 if len(labels) > 3 else rows_y[0] - 92
     c.setFillColor(light_navy); c.roundRect(margin, box_y, width - 2*margin, 84, 8, fill=1, stroke=0)
     c.setFillColor(HexColor("#FFFFFF")); c.setFont("Helvetica-Bold", 12)
@@ -1082,19 +1097,39 @@ def build_pdf_report(fig_sections, cover, summary_pages=None):
     for line in cover.get("overview_lines", [])[:5]:
         c.drawString(margin + 10, y, "• " + line); y -= 14
 
-    # Executive Summary
+    # ---------- Executive Summary + FIRST summary on SAME page ----------
     exec_text = cover.get("exec_summary", "").strip()
-    if exec_text:
-        c.setFillColor(navy); c.setFont("Helvetica-Bold", 12)
-        y_title = box_y - 14; c.drawString(margin, y_title, "Executive Summary")
-        frame = Frame(margin, margin, width - 2*margin, y_title - 12 - margin, showBoundary=0)
-        frame.addFromList([Paragraph(exec_text, style=body_style)], c)
 
+    c.setFillColor(navy); c.setFont("Helvetica-Bold", 12)
+    y_title_exec = box_y - 14
+    c.drawString(margin, y_title_exec, "Executive Summary")
+
+    top_of_text = y_title_exec - 12
+    remaining_h = top_of_text - margin
+    exec_h = remaining_h * 0.56
+    summ_h = remaining_h - exec_h - 6  # small gap
+
+    exec_frame = Frame(margin, margin + summ_h + 6, width - 2*margin, exec_h, showBoundary=0)
+    if exec_text:
+        exec_para = Paragraph(exec_text, style=body_style)
+        exec_frame.addFromList([exec_para], c)
+
+    # First summary (Trip Summary or Snapshots)
+    if summary_pages and len(summary_pages) >= 1:
+        first_summary = summary_pages[0]
+        c.setFillColor(navy); c.setFont("Helvetica-Bold", 12)
+        c.drawString(margin, margin + summ_h + 6 - 16, first_summary.get("title", "Summary"))
+
+        summary_frame = Frame(margin, margin, width - 2*margin, summ_h - 20, showBoundary=0)
+        summary_para = Paragraph(first_summary.get("paragraph", ""), style=body_style)
+        summary_frame.addFromList([summary_para], c)
+
+    # Finish unified front page
     c.showPage()
 
-    # ---------- SUMMARY PAGES ----------
-    if summary_pages:
-        for sec in summary_pages:
+    # ---------- Any additional summary pages ----------
+    if summary_pages and len(summary_pages) > 1:
+        for sec in summary_pages[1:]:
             c.setFillColor(navy); c.setFont("Helvetica-Bold", 13)
             c.drawString(margin, height - margin - 10, sec.get("title", "Summary"))
             frame = Frame(margin, margin, width - 2*margin, height - 2*margin - 22, showBoundary=0)
@@ -1123,12 +1158,10 @@ def build_pdf_report(fig_sections, cover, summary_pages=None):
 
     i = 0
     while i < len(fig_sections):
-        # Top slot
         y_top_first = height - margin
         title1, fig1 = fig_sections[i]
         draw_chart_block(title1, fig1, y_top_first)
 
-        # Bottom slot (if available)
         if i + 1 < len(fig_sections):
             y_top_second = height - margin - slot_h - gap_y
             title2, fig2 = fig_sections[i + 1]
@@ -1136,7 +1169,6 @@ def build_pdf_report(fig_sections, cover, summary_pages=None):
             i += 2
         else:
             i += 1
-
         c.showPage()
 
     c.save(); buf.seek(0); return buf.getvalue()
