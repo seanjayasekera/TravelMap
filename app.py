@@ -1,6 +1,6 @@
 # --- Travel Dashboard (Streamlit) ---
 # Full app with compact PDF export (2 charts/page) and Executive+Summary on same page.
-# Globe watermark has been REMOVED.
+# Watermark fully removed. ALL Plotly legends & colorbars disabled.
 
 import os
 import base64
@@ -549,7 +549,7 @@ top_spend = (t.sort_values("total_cost_usd", ascending=False)["trip_name"].head(
 top_line = f"Top by total spend: {', '.join(top_spend)}" if top_spend else "Add trips to see top destinations"
 
 # =========================
-#   Executive summary (exact phrasing, with <b>)
+#   Executive summary (with <b>)
 # =========================
 def build_exec_summary(trips_df: pd.DataFrame, meals_df: pd.DataFrame) -> str:
     if trips_df is None or len(trips_df) == 0:
@@ -608,6 +608,15 @@ cover_info = {
 # =========================
 #   Charts
 # =========================
+def _hide_legends(fig):
+    # Globally hide discrete legends and any continuous colorbars
+    fig.update_layout(showlegend=False)
+    try:
+        fig.update_coloraxes(showscale=False)
+    except Exception:
+        pass
+    return fig
+
 report_sections = []
 
 col1, col2 = st.columns([1.25, 1])
@@ -629,6 +638,7 @@ with col1:
             fig_map.update_traces(marker=dict(color="red", size=9, line=dict(width=1, color="black")))
         fig_map.update_geos(showcountries=True, showframe=False, landcolor="lightgray", oceancolor="lightblue", showocean=True)
         fig_map.update_layout(margin=dict(l=0,r=0,t=0,b=0), height=450, template="simple_white")
+        _hide_legends(fig_map)
         st.plotly_chart(fig_map, use_container_width=True, config=PLOTLY_CONFIG)
         add_download(fig_map, "map.png", key="dl_map")
         report_sections.append(("Where you've been", fig_map))
@@ -647,8 +657,8 @@ with col2:
         if show_labels:
             fig_cost.update_traces(text=df_total["total_cost_usd"].map(lambda v: f"${v:,.0f}"), textposition="outside", cliponaxis=False)
         fig_cost.update_traces(hovertemplate="<b>%{x}</b><br>%{y:,.0f}<extra></extra>")
-        fig_cost.update_layout(xaxis_tickangle=-20)
-        fig_cost.update_layout(margin=dict(t=30))
+        fig_cost.update_layout(xaxis_tickangle=-20, margin=dict(t=30))
+        _hide_legends(fig_cost)
         st.plotly_chart(fig_cost, use_container_width=True, config=PLOTLY_CONFIG)
         add_download(fig_cost, "total_spend.png", key="dl_total")
         report_sections.append(("Total spend per trip", fig_cost))
@@ -667,6 +677,7 @@ if len(t):
         fig_cpd.update_traces(text=df_cpd["cost_per_day"].map(lambda v: f"${v:,.2f}"), textposition="outside", cliponaxis=False)
     fig_cpd.update_traces(hovertemplate="<b>%{y}</b><br>%{x:,.2f}<extra></extra>")
     fig_cpd.update_layout(margin=dict(t=30))
+    _hide_legends(fig_cpd)
     st.plotly_chart(fig_cpd, use_container_width=True, config=PLOTLY_CONFIG)
     add_download(fig_cpd, "cost_per_day.png", key="dl_cpd")
     report_sections.append(("Cost per day leaderboard", fig_cpd))
@@ -708,6 +719,7 @@ if {"trip_id","cuisine","rating_1_10"}.issubset(meals.columns) and len(meals) an
         if show_labels:
             fig_cuisine.update_traces(text=top_cuisines["avg_rating"].map(lambda v: f"{v:.1f}"), textposition="outside", cliponaxis=False)
         fig_cuisine.update_layout(xaxis_tickangle=-30, margin=dict(t=30))
+        _hide_legends(fig_cuisine)
         st.plotly_chart(fig_cuisine, use_container_width=True, config=PLOTLY_CONFIG)
         add_download(fig_cuisine, "food_ratings_cuisines.png", key="dl_cuisine")
         report_sections.append(("Food ratings — avg by cuisine", fig_cuisine))
@@ -728,6 +740,7 @@ if {"trip_id","cuisine","rating_1_10"}.issubset(meals.columns) and len(meals) an
             if show_labels:
                 fig_trip_rating.update_traces(text=avg_by_trip["avg_rating"].map(lambda v: f"{v:.1f}"), textposition="outside", cliponaxis=False)
             fig_trip_rating.update_layout(xaxis_tickangle=-20, margin=dict(t=30))
+            _hide_legends(fig_trip_rating)
             st.plotly_chart(fig_trip_rating, use_container_width=True, config=PLOTLY_CONFIG)
             add_download(fig_trip_rating, "avg_food_rating_per_trip.png", key="dl_trip_rating")
             report_sections.append(("Average food rating per trip", fig_trip_rating))
@@ -749,6 +762,7 @@ if "transportation_cost_usd" in t.columns and len(t) and t["transportation_cost_
         fig_transport.update_traces(text=df_tr["transportation_cost_usd"].fillna(0).map(lambda v: f"${v:,.0f}"), textposition="outside", cliponaxis=False)
     fig_transport.update_traces(hovertemplate="<b>%{x}</b><br>%{y:,.0f}<extra></extra>")
     fig_transport.update_layout(xaxis_tickangle=-20, margin=dict(t=30))
+    _hide_legends(fig_transport)
     st.plotly_chart(fig_transport, use_container_width=True, config=PLOTLY_CONFIG)
     add_download(fig_transport, "transportation.png", key="dl_transport")
     report_sections.append(("Transportation spend per trip", fig_transport))
@@ -765,6 +779,7 @@ if "food_cost_usd_final" in t.columns and len(t):
         fig_food.update_traces(text=df_food["food_cost_usd_final"].map(lambda v: f"${v:,.0f}"), textposition="outside", cliponaxis=False)
     fig_food.update_traces(hovertemplate="<b>%{x}</b><br>%{y:,.0f}<extra></extra>")
     fig_food.update_layout(xaxis_tickangle=-20, margin=dict(t=30))
+    _hide_legends(fig_food)
     st.plotly_chart(fig_food, use_container_width=True, config=PLOTLY_CONFIG)
     add_download(fig_food, "food_spend.png", key="dl_food")
     report_sections.append(("Food spend per trip", fig_food))
@@ -781,6 +796,7 @@ if "accommodation_cost_usd" in t.columns and len(t) and t["accommodation_cost_us
         fig_accom.update_traces(text=df_ac["accommodation_cost_usd"].fillna(0).map(lambda v: f"${v:,.0f}"), textposition="outside", cliponaxis=False)
     fig_accom.update_traces(hovertemplate="<b>%{x}</b><br>%{y:,.0f}<extra></extra>")
     fig_accom.update_layout(xaxis_tickangle=-20, margin=dict(t=30))
+    _hide_legends(fig_accom)
     st.plotly_chart(fig_accom, use_container_width=True, config=PLOTLY_CONFIG)
     add_download(fig_accom, "accommodation.png", key="dl_accom")
     report_sections.append(("Accommodation spend per trip", fig_accom))
@@ -797,6 +813,7 @@ if "activities_cost_usd" in t.columns and len(t) and t["activities_cost_usd"].no
         fig_activities.update_traces(text=df_act["activities_cost_usd"].fillna(0).map(lambda v: f"${v:,.0f}"), textposition="outside", cliponaxis=False)
     fig_activities.update_traces(hovertemplate="<b>%{x}</b><br>%{y:,.0f}<extra></extra>")
     fig_activities.update_layout(xaxis_tickangle=-20, margin=dict(t=30))
+    _hide_legends(fig_activities)
     st.plotly_chart(fig_activities, use_container_width=True, config=PLOTLY_CONFIG)
     add_download(fig_activities, "activities_spend.png", key="dl_activities")
     report_sections.append(("Activities spend per trip", fig_activities))
@@ -854,6 +871,7 @@ if len(t) and "internet_speed_mbps" in t.columns and t["internet_speed_mbps"].no
                      color="internet_speed_mbps", color_continuous_scale="RdYlGn")
     fig_net.update_traces(hovertemplate="<b>%{y}</b><br>%{x:.1f} Mbps<extra></extra>")
     fig_net.update_layout(margin=dict(t=30))
+    _hide_legends(fig_net)
     st.plotly_chart(fig_net, use_container_width=True, config=PLOTLY_CONFIG)
     add_download(fig_net, "internet_speed.png", key="dl_net_dn")
     report_sections.append(("Average Internet Speed by Trip", fig_net))
@@ -868,6 +886,7 @@ if len(t) and "internet_speed_mbps" in t.columns and t["internet_speed_mbps"].no
                              labels={"country":"Country","avg_speed_mbps":"Avg Mbps"},
                              color="avg_speed_mbps", color_continuous_scale="RdYlGn")
         fig_country.update_layout(margin=dict(t=30))
+        _hide_legends(fig_country)
         st.plotly_chart(fig_country, use_container_width=True, config=PLOTLY_CONFIG)
         add_download(fig_country, "country_avg_speed.png", key="dl_country_speed")
         report_sections.append(("Average internet speed by country", fig_country))
@@ -890,6 +909,7 @@ if len(t) and "internet_speed_mbps" in t.columns and t["internet_speed_mbps"].no
                           labels={"workability_score":"Score","trip_name":"Trip"},
                           color="workability_score", color_continuous_scale="RdYlGn")
         fig_work.update_layout(margin=dict(t=30))
+        _hide_legends(fig_work)
         st.plotly_chart(fig_work, use_container_width=True, config=PLOTLY_CONFIG)
         add_download(fig_work, "top_remote_work_destinations.png", key="dl_workability")
         report_sections.append(("Top 5 remote-work destinations (workability score)", fig_work))
@@ -899,7 +919,7 @@ else:
 st.markdown("---")
 
 # =========================
-#   Narrative builders (exact phrasing, with <b>)
+#   Narrative builders
 # =========================
 def make_single_trip_summary(trip_row: pd.Series, meals_df: pd.DataFrame, norm_basis: pd.DataFrame) -> str:
     name = str(trip_row.get("trip_name", "") or "").strip() or "Unnamed Trip"
@@ -1001,7 +1021,7 @@ def make_multi_trip_snapshots(trips_df: pd.DataFrame, meals_df: pd.DataFrame) ->
     return "<br/>".join(lines) if lines else "Add trips to see snapshots."
 
 # =========================
-#   PDF Export (COMPACT LAYOUT, Exec+Summary same page, NO watermark)
+#   PDF Export (NO watermark)
 # =========================
 def build_pdf_report(fig_sections, cover, summary_pages=None):
     """
@@ -1010,6 +1030,7 @@ def build_pdf_report(fig_sections, cover, summary_pages=None):
       - Executive Summary + FIRST summary (Trip Summary/Snapshots) on SAME page
       - Any additional summaries onto next pages
       - Charts: exactly 2 per page, stacked, tight margins
+      - No watermark or background artwork
     """
     if not (KALEIDO_OK and REPORTLAB_OK):
         return None
