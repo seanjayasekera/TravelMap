@@ -1,7 +1,7 @@
 # --- Travel Dashboard (Streamlit) ---
 # Full app with compact PDF export (2 charts/page), poetic Executive Summary,
-# and Executive+Snapshots on the same first PDF page.
-# Watermark fully removed. ALL Plotly legends & colorbars disabled.
+# Executive+Snapshots on the same first PDF page, and a mini "Trips by Region" donut
+# placed in the page-1 gap. Watermark removed; Plotly legends & colorbars disabled.
 
 import os
 import base64
@@ -252,7 +252,6 @@ def detect_regions(countries: list[str]) -> list[str]:
                 counts[region] = counts.get(region, 0) + 1
     if not counts:
         return []
-    # sort by frequency then alphabetically
     return [r for r, _ in sorted(counts.items(), key=lambda x: (-x[1], x[0]))]
 
 def to_list_text(items: list[str], max_items=3) -> str:
@@ -265,6 +264,23 @@ def to_list_text(items: list[str], max_items=3) -> str:
     if len(items) == 2:
         return f"{items[0]} and {items[1]}"
     return f"{', '.join(items[:-1])}, and {items[-1]}"
+
+def region_counts_df(trips_df: pd.DataFrame) -> pd.DataFrame:
+    if trips_df is None or trips_df.empty or "country" not in trips_df.columns:
+        return pd.DataFrame(columns=["region","count"])
+    rows = []
+    for ctry in trips_df["country"].dropna():
+        placed = False
+        for region, members in REGION_MAP.items():
+            if str(ctry) in members:
+                rows.append(region); placed = True; break
+        if not placed:
+            rows.append("Other")
+    if not rows:
+        return pd.DataFrame(columns=["region","count"])
+    s = pd.Series(rows).value_counts().reset_index()
+    s.columns = ["region","count"]
+    return s
 
 # =========================
 #   Sidebar
@@ -588,14 +604,13 @@ if not filters_summary:
 top_spend = (t.sort_values("total_cost_usd", ascending=False)["trip_name"].head(3).tolist() if len(t) else [])
 top_line = f"Top by total spend: {', '.join(top_spend)}" if top_spend else "Add trips to see top destinations"
 
-# =========================
+# -------------------------
 #   Poetic Executive summary
-# =========================
+# -------------------------
 def build_poetic_story(trips_df: pd.DataFrame, meals_df: pd.DataFrame) -> str:
     if trips_df is None or len(trips_df) == 0:
         return "No trips yet. Add your first trip to begin the story."
 
-    # Gather places
     cities = [str(c) for c in trips_df["primary_city"].dropna().tolist()]
     countries_list = [str(c) for c in trips_df["country"].dropna().tolist()]
     regions = detect_regions(countries_list)
@@ -603,7 +618,6 @@ def build_poetic_story(trips_df: pd.DataFrame, meals_df: pd.DataFrame) -> str:
     city_sample = to_list_text(pd.Series(cities).dropna().unique().tolist(), max_items=3)
     country_sample = to_list_text(pd.Series(countries_list).dropna().unique().tolist(), max_items=3)
 
-    # Stats for color
     cpd_median = trips_df["cost_per_day"].median()
     avg_speed_ = trips_df["internet_speed_mbps"].dropna().mean() if "internet_speed_mbps" in trips_df.columns else float("nan")
 
@@ -617,7 +631,6 @@ def build_poetic_story(trips_df: pd.DataFrame, meals_df: pd.DataFrame) -> str:
             if len(m):
                 best_food_trip = f"{m.iloc[0]['trip_name']} ({m.iloc[0]['avg_rating']:.1f}/10)"
 
-    # Time framing
     sd_min = pd.to_datetime(trips_df["start_date"], errors="coerce").min()
     ed_max = pd.to_datetime(trips_df["end_date"], errors="coerce").max()
     time_window = ""
@@ -627,9 +640,7 @@ def build_poetic_story(trips_df: pd.DataFrame, meals_df: pd.DataFrame) -> str:
         else:
             time_window = f"from {sd_min.strftime('%Y')} to {ed_max.strftime('%Y')}"
 
-    # Compose warm, poetic paragraph (HTML allowed in PDF)
     lines = []
-
     if main_region:
         lines.append(f"Your path arcs across <b>{main_region}</b> — ")
     else:
@@ -656,11 +667,9 @@ def build_poetic_story(trips_df: pd.DataFrame, meals_df: pd.DataFrame) -> str:
         lines.append(f"Along the way, flavors sang — with <b>{best_food_trip}</b> tasting most like a memory you’ll revisit. ")
 
     lines.append("What remains are scenes: streetlights blinking awake, small kindnesses in unfamiliar places, and a map dotted with places that now know your name.")
-
     return "".join(lines)
 
 def build_exec_summary(trips_df: pd.DataFrame, meals_df: pd.DataFrame) -> str:
-    # Use the poetic story (above) to drive the Executive Summary
     return build_poetic_story(trips_df, meals_df)
 
 cover_info = {
@@ -1012,7 +1021,6 @@ def make_single_trip_summary(trip_row: pd.Series, meals_df: pd.DataFrame, norm_b
     spd = trip_row.get("internet_speed_mbps")
     spd_txt = f"{float(spd):.0f} Mbps" if pd.notnull(spd) else "not recorded"
 
-    # Short, warm one-trip paragraph
     date_str = ""
     if pd.notnull(sd) and pd.notnull(ed):
         if sd.year == ed.year and sd.month == ed.month:
@@ -1042,13 +1050,14 @@ def make_multi_trip_snapshots(trips_df: pd.DataFrame, meals_df: pd.DataFrame) ->
     return "<br/>".join(lines) if lines else "Add trips to see snapshots."
 
 # =========================
-#   PDF Export (NO watermark, legends off)
+#   PDF Export (mini donut on page 1)
 # =========================
-def build_pdf_report(fig_sections, cover, summary_pages=None):
+def build_pdf_report(fig_sections, cover, summary_pages=None, mini_chart_png=None):
     """
     Compact PDF layout:
       - Cover header + metrics + overview
       - Executive Summary + FIRST summary (Trip Summary/Snapshots) on SAME page
+      - Mini donut (Trips by Region) fills the gap in the Exec Summary block (lower-right)
       - Any additional summaries onto next pages
       - Charts: exactly 2 per page, stacked, tight margins
       - No watermark / background artwork
@@ -1058,7 +1067,7 @@ def build_pdf_report(fig_sections, cover, summary_pages=None):
 
     buf = BytesIO()
 
-    # Local imports
+    # Local imports (for Streamlit Cloud envs)
     from reportlab.pdfgen import canvas as rl_canvas
     from reportlab.lib.pagesizes import A4
     from reportlab.lib.utils import ImageReader
@@ -1121,11 +1130,21 @@ def build_pdf_report(fig_sections, cover, summary_pages=None):
     exec_h = remaining_h * 0.56
     summ_h = remaining_h - exec_h - 6  # small gap
 
+    # Exec frame (upper area of the lower block)
     exec_frame = Frame(margin, margin + summ_h + 6, width - 2*margin, exec_h, showBoundary=0)
     if exec_text:
         exec_para = Paragraph(exec_text, style=body_style)
         exec_frame.addFromList([exec_para], c)
 
+    # --- Mini donut image in lower-right of Executive block ---
+    if mini_chart_png:
+        img = ImageReader(BytesIO(mini_chart_png))
+        target_w, target_h = 150, 150
+        x = width - margin - target_w
+        y = margin + summ_h + 12  # sit inside the exec block, bottom-right
+        c.drawImage(img, x, y, width=target_w, height=target_h, preserveAspectRatio=True, mask='auto')
+
+    # FIRST summary (Trip Summary / Snapshots) below the Executive block
     if summary_pages and len(summary_pages) >= 1:
         first_summary = summary_pages[0]
         c.setFillColor(navy); c.setFont("Helvetica-Bold", 12)
@@ -1195,6 +1214,19 @@ elif len(t) > 1:
     snapshots_text = make_multi_trip_snapshots(t, meals)
     summary_pages.append({"title": "Trip Snapshots", "paragraph": snapshots_text})
 
+# Build mini donut PNG for PDF page-1 gap
+mini_chart_png = None
+try:
+    rc = region_counts_df(t)
+    if len(rc):
+        fig_region = px.pie(rc, names="region", values="count", hole=0.55)
+        fig_region.update_traces(textinfo="percent", hovertemplate="%{label}: %{value} trip(s)<extra></extra>")
+        fig_region.update_layout(margin=dict(l=0,r=0,t=0,b=0), height=220, width=220)
+        _hide_legends(fig_region)
+        mini_chart_png = fig_png_bytes(fig_region, scale=2)
+except Exception:
+    mini_chart_png = None
+
 if not KALEIDO_OK:
     st.info("To enable PNG/PDF exports, ensure `kaleido` is installed in requirements.txt.")
 elif not REPORTLAB_OK:
@@ -1202,7 +1234,7 @@ elif not REPORTLAB_OK:
 elif len(report_sections) == 0:
     st.info("Add some data to generate charts before exporting a PDF report.")
 else:
-    pdf_bytes = build_pdf_report(report_sections, cover_info, summary_pages=summary_pages)
+    pdf_bytes = build_pdf_report(report_sections, cover_info, summary_pages=summary_pages, mini_chart_png=mini_chart_png)
     if pdf_bytes:
         st.download_button(
             "📄 Download PDF Report",
