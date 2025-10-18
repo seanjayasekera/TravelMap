@@ -2,6 +2,7 @@
 # Full app with compact PDF export (2 charts/page), poetic Executive Summary,
 # Executive+Snapshots on the same first PDF page, and a centered "Trips by Region"
 # donut (percent-only labels, no legend). Watermark removed; Plotly legends off elsewhere.
+# Y-axis clipping fix added for horizontal bars (cpd, internet speed, workability).
 
 import os
 import base64
@@ -758,6 +759,12 @@ if len(t):
     if show_labels:
         fig_cpd.update_traces(text=df_cpd["cost_per_day"].map(lambda v: f"${v:,.2f}"), textposition="outside", cliponaxis=False)
     fig_cpd.update_traces(hovertemplate="<b>%{y}</b><br>%{x:,.2f}<extra></extra>")
+    # >>> Y-axis clipping fixes (automargin + generous left margin + slightly larger labels)
+    fig_cpd.update_yaxes(automargin=True)
+    fig_cpd.update_layout(margin=dict(l=140, r=20, t=30, b=20), yaxis_tickfont=dict(size=12))
+    fig_cpd.update_layout(margin=dict(l=140, r=20, t=30, b=20))
+    fig_cpd.update_layout(yaxis_tickfont=dict(size=12))
+    # <<<
     fig_cpd.update_layout(margin=dict(t=30))
     _hide_legends(fig_cpd)
     st.plotly_chart(fig_cpd, use_container_width=True, config=PLOTLY_CONFIG)
@@ -952,7 +959,11 @@ if len(t) and "internet_speed_mbps" in t.columns and t["internet_speed_mbps"].no
                      labels={"internet_speed_mbps":"Mbps","trip_name":"Trip"},
                      color="internet_speed_mbps", color_continuous_scale="RdYlGn")
     fig_net.update_traces(hovertemplate="<b>%{y}</b><br>%{x:.1f} Mbps<extra></extra>")
-    fig_net.update_layout(margin=dict(t=30))
+    # >>> Y-axis clipping fixes
+    fig_net.update_yaxes(automargin=True)
+    fig_net.update_layout(margin=dict(l=140, r=20, t=30, b=20), yaxis_tickfont=dict(size=12))
+    fig_net.update_traces(cliponaxis=False)
+    # <<<
     _hide_legends(fig_net)
     st.plotly_chart(fig_net, use_container_width=True, config=PLOTLY_CONFIG)
     add_download(fig_net, "internet_speed.png", key="dl_net_dn")
@@ -990,7 +1001,11 @@ if len(t) and "internet_speed_mbps" in t.columns and t["internet_speed_mbps"].no
         fig_work = px.bar(top5, x="workability_score", y="trip_name", orientation="h",
                           labels={"workability_score":"Score","trip_name":"Trip"},
                           color="workability_score", color_continuous_scale="RdYlGn")
-        fig_work.update_layout(margin=dict(t=30))
+        # >>> Y-axis clipping fixes
+        fig_work.update_yaxes(automargin=True)
+        fig_work.update_layout(margin=dict(l=140, r=20, t=30, b=20), yaxis_tickfont=dict(size=12))
+        fig_work.update_traces(cliponaxis=False)
+        # <<<
         _hide_legends(fig_work)
         st.plotly_chart(fig_work, use_container_width=True, config=PLOTLY_CONFIG)
         add_download(fig_work, "top_remote_work_destinations.png", key="dl_workability")
