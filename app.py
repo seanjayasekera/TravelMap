@@ -1,7 +1,7 @@
 # --- Travel Dashboard (Streamlit) ---
 # Full app with compact PDF export (2 charts/page), poetic Executive Summary,
-# Executive+Snapshots on the same first PDF page, and a mini "Trips by Region" donut
-# placed in the page-1 gap. Watermark removed; Plotly legends & colorbars disabled.
+# Executive+Snapshots on the same first PDF page, and a centered "Trips by Region"
+# donut (with labels) in the Exec Summary gap. Watermark removed; Plotly legends off elsewhere.
 
 import os
 import base64
@@ -1057,7 +1057,7 @@ def build_pdf_report(fig_sections, cover, summary_pages=None, mini_chart_png=Non
     Compact PDF layout:
       - Cover header + metrics + overview
       - Executive Summary + FIRST summary (Trip Summary/Snapshots) on SAME page
-      - Mini donut (Trips by Region) fills the gap in the Exec Summary block (lower-right)
+      - Centered "Trips by Region" donut (with labels) in the Exec Summary block
       - Any additional summaries onto next pages
       - Charts: exactly 2 per page, stacked, tight margins
       - No watermark / background artwork
@@ -1136,12 +1136,15 @@ def build_pdf_report(fig_sections, cover, summary_pages=None, mini_chart_png=Non
         exec_para = Paragraph(exec_text, style=body_style)
         exec_frame.addFromList([exec_para], c)
 
-    # --- Mini donut image in lower-right of Executive block ---
+    # --- Centered mini donut image with title in Exec block ---
     if mini_chart_png:
         img = ImageReader(BytesIO(mini_chart_png))
         target_w, target_h = 150, 150
-        x = width - margin - target_w
-        y = margin + summ_h + 12  # sit inside the exec block, bottom-right
+        x = margin + (width - 2*margin - target_w) / 2.0  # centered inside the exec block width
+        y = margin + summ_h + 12  # bottom of exec block
+        # Title above the donut (centered)
+        c.setFillColor(navy); c.setFont("Helvetica-Bold", 10)
+        c.drawCentredString(margin + (width - 2*margin)/2.0, y + target_h + 10, "Trips by Region")
         c.drawImage(img, x, y, width=target_w, height=target_h, preserveAspectRatio=True, mask='auto')
 
     # FIRST summary (Trip Summary / Snapshots) below the Executive block
@@ -1214,15 +1217,16 @@ elif len(t) > 1:
     snapshots_text = make_multi_trip_snapshots(t, meals)
     summary_pages.append({"title": "Trip Snapshots", "paragraph": snapshots_text})
 
-# Build mini donut PNG for PDF page-1 gap
+# Build mini donut PNG for PDF page-1 gap (with labels)
 mini_chart_png = None
 try:
     rc = region_counts_df(t)
     if len(rc):
-        fig_region = px.pie(rc, names="region", values="count", hole=0.55)
-        fig_region.update_traces(textinfo="percent", hovertemplate="%{label}: %{value} trip(s)<extra></extra>")
+        fig_region = px.pie(rc, names="region", values="count", hole=0.55, template="simple_white")
+        # Show labels + percentages on the wedges so it's self-explanatory
+        fig_region.update_traces(textinfo="label+percent", hovertemplate="%{label}: %{value} trip(s) — %{percent}<extra></extra>")
         fig_region.update_layout(margin=dict(l=0,r=0,t=0,b=0), height=220, width=220)
-        _hide_legends(fig_region)
+        # Keep legend off to save space; labels cover the meaning
         mini_chart_png = fig_png_bytes(fig_region, scale=2)
 except Exception:
     mini_chart_png = None
