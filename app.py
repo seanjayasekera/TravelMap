@@ -1,8 +1,7 @@
 # --- Travel Dashboard (Streamlit) ---
 # Full app with compact PDF export (2 charts/page), poetic Executive Summary,
-# Executive+Snapshots on the same first PDF page, and a centered "Trips by Region"
-# donut (percent-only labels, no legend). Watermark removed; Plotly legends off elsewhere.
-# Y-axis clipping fix added for horizontal bars (cpd, internet speed, workability).
+# Exec+Snapshots on first PDF page, centered "Trips by Region" donut (clean, percent-only),
+# no watermark; legends hidden. Axis spacing fixes added to horizontal bars.
 
 import os
 import base64
@@ -759,13 +758,16 @@ if len(t):
     if show_labels:
         fig_cpd.update_traces(text=df_cpd["cost_per_day"].map(lambda v: f"${v:,.2f}"), textposition="outside", cliponaxis=False)
     fig_cpd.update_traces(hovertemplate="<b>%{y}</b><br>%{x:,.2f}<extra></extra>")
-    # >>> Y-axis clipping fixes (automargin + generous left margin + slightly larger labels)
+    # Y-axis clipping & title spacing
+    fig_cpd.update_layout(
+        xaxis_title_standoff=16,
+        yaxis_title_standoff=24,
+        xaxis_title_font=dict(size=12),
+        yaxis_title_font=dict(size=12),
+        margin=dict(l=150, r=30, t=35, b=40),
+    )
+    fig_cpd.update_xaxes(automargin=True)
     fig_cpd.update_yaxes(automargin=True)
-    fig_cpd.update_layout(margin=dict(l=140, r=20, t=30, b=20), yaxis_tickfont=dict(size=12))
-    fig_cpd.update_layout(margin=dict(l=140, r=20, t=30, b=20))
-    fig_cpd.update_layout(yaxis_tickfont=dict(size=12))
-    # <<<
-    fig_cpd.update_layout(margin=dict(t=30))
     _hide_legends(fig_cpd)
     st.plotly_chart(fig_cpd, use_container_width=True, config=PLOTLY_CONFIG)
     add_download(fig_cpd, "cost_per_day.png", key="dl_cpd")
@@ -959,11 +961,17 @@ if len(t) and "internet_speed_mbps" in t.columns and t["internet_speed_mbps"].no
                      labels={"internet_speed_mbps":"Mbps","trip_name":"Trip"},
                      color="internet_speed_mbps", color_continuous_scale="RdYlGn")
     fig_net.update_traces(hovertemplate="<b>%{y}</b><br>%{x:.1f} Mbps<extra></extra>")
-    # >>> Y-axis clipping fixes
+    # Y-axis clipping & title spacing
+    fig_net.update_layout(
+        xaxis_title_standoff=16,
+        yaxis_title_standoff=24,
+        xaxis_title_font=dict(size=12),
+        yaxis_title_font=dict(size=12),
+        margin=dict(l=150, r=30, t=35, b=40),
+    )
+    fig_net.update_xaxes(automargin=True)
     fig_net.update_yaxes(automargin=True)
-    fig_net.update_layout(margin=dict(l=140, r=20, t=30, b=20), yaxis_tickfont=dict(size=12))
     fig_net.update_traces(cliponaxis=False)
-    # <<<
     _hide_legends(fig_net)
     st.plotly_chart(fig_net, use_container_width=True, config=PLOTLY_CONFIG)
     add_download(fig_net, "internet_speed.png", key="dl_net_dn")
@@ -1001,11 +1009,17 @@ if len(t) and "internet_speed_mbps" in t.columns and t["internet_speed_mbps"].no
         fig_work = px.bar(top5, x="workability_score", y="trip_name", orientation="h",
                           labels={"workability_score":"Score","trip_name":"Trip"},
                           color="workability_score", color_continuous_scale="RdYlGn")
-        # >>> Y-axis clipping fixes
+        # Y-axis clipping & title spacing
+        fig_work.update_layout(
+            xaxis_title_standoff=16,
+            yaxis_title_standoff=24,
+            xaxis_title_font=dict(size=12),
+            yaxis_title_font=dict(size=12),
+            margin=dict(l=150, r=30, t=35, b=40),
+        )
+        fig_work.update_xaxes(automargin=True)
         fig_work.update_yaxes(automargin=True)
-        fig_work.update_layout(margin=dict(l=140, r=20, t=30, b=20), yaxis_tickfont=dict(size=12))
         fig_work.update_traces(cliponaxis=False)
-        # <<<
         _hide_legends(fig_work)
         st.plotly_chart(fig_work, use_container_width=True, config=PLOTLY_CONFIG)
         add_download(fig_work, "top_remote_work_destinations.png", key="dl_workability")
@@ -1068,21 +1082,11 @@ def make_multi_trip_snapshots(trips_df: pd.DataFrame, meals_df: pd.DataFrame) ->
 #   PDF Export (mini donut on page 1)
 # =========================
 def build_pdf_report(fig_sections, cover, summary_pages=None, mini_chart_png=None):
-    """
-    Compact PDF layout:
-      - Cover header + metrics + overview
-      - Executive Summary + FIRST summary (Trip Summary/Snapshots) on SAME page
-      - Centered "Trips by Region" donut (percent-only labels) in the Exec Summary block
-      - Any additional summaries onto next pages
-      - Charts: exactly 2 per page, stacked, tight margins
-      - No watermark / background artwork
-    """
     if not (KALEIDO_OK and REPORTLAB_OK):
         return None
 
     buf = BytesIO()
 
-    # Local imports (for Streamlit Cloud envs)
     from reportlab.pdfgen import canvas as rl_canvas
     from reportlab.lib.pagesizes import A4
     from reportlab.lib.utils import ImageReader
@@ -1099,7 +1103,7 @@ def build_pdf_report(fig_sections, cover, summary_pages=None, mini_chart_png=Non
     body_style = ParagraphStyle("Body", fontName="Helvetica", fontSize=10.5, leading=14,
                                 alignment=TA_LEFT, textColor=HexColor("#111111"))
 
-    # ---------- COVER HEADER ----------
+    # Header banner
     banner_h = 96
     c.setFillColor(navy); c.rect(0, height - banner_h, width, banner_h, fill=1, stroke=0)
     c.setFillColor(HexColor("#FFFFFF")); c.setFont("Helvetica-Bold", 22)
@@ -1109,7 +1113,7 @@ def build_pdf_report(fig_sections, cover, summary_pages=None, mini_chart_png=Non
     if subline: c.drawString(margin, height - banner_h + 38, subline)
     if dr: c.drawString(margin, height - banner_h + 22, dr)
 
-    # ---------- KPI chips ----------
+    # KPI chips
     chips = cover.get("metrics", {})
     chip_w = (width - 2*margin - 16) / 3.0
     chip_h = 38
@@ -1123,7 +1127,7 @@ def build_pdf_report(fig_sections, cover, summary_pages=None, mini_chart_png=Non
         r = 0 if i < 3 else 1; col = i % 3
         x = margin + col * (chip_w + 8); y = rows_y[r]; _chip(x, y, chip_w, chip_h, lab, val)
 
-    # ---------- Overview box ----------
+    # Overview box
     box_y = rows_y[1] - 92 if len(labels) > 3 else rows_y[0] - 92
     c.setFillColor(light_navy); c.roundRect(margin, box_y, width - 2*margin, 84, 8, fill=1, stroke=0)
     c.setFillColor(HexColor("#FFFFFF")); c.setFont("Helvetica-Bold", 12)
@@ -1133,61 +1137,42 @@ def build_pdf_report(fig_sections, cover, summary_pages=None, mini_chart_png=Non
     for line in cover.get("overview_lines", [])[:5]:
         c.drawString(margin + 10, y, "• " + line); y -= 14
 
-    # ---------- Executive Summary + FIRST summary on SAME page ----------
+    # Executive Summary + first summary on same page
     exec_text = cover.get("exec_summary", "").strip()
-
     c.setFillColor(navy); c.setFont("Helvetica-Bold", 12)
     y_title_exec = box_y - 14
     c.drawString(margin, y_title_exec, "Executive Summary")
 
     top_of_text = y_title_exec - 12
     remaining_h = top_of_text - margin
-
-    # Split: give Exec block a bit more room so donut + text never collide
     exec_h = remaining_h * 0.60
-    summ_h = remaining_h - exec_h - 6  # small gap
+    summ_h = remaining_h - exec_h - 6
 
-    # Exec frame (upper area of the lower block)
     exec_frame = Frame(margin, margin + summ_h + 6, width - 2*margin, exec_h, showBoundary=0)
     if exec_text:
         exec_para = Paragraph(exec_text, style=body_style)
         exec_frame.addFromList([exec_para], c)
 
-    # --- Centered mini donut image with title in Exec block (no clipping) ---
     if mini_chart_png:
         img = ImageReader(BytesIO(mini_chart_png))
-        target_w, target_h = 170, 170  # sized to avoid any crop
-        x = margin + (width - 2*margin - target_w) / 2.0   # centered in exec block width
-        # Place donut comfortably above the summary block
+        target_w, target_h = 170, 170
+        x = margin + (width - 2*margin - target_w) / 2.0
         y = margin + summ_h + 14
-
-        # Title above the donut (use navy for readability)
-        c.setFillColor(navy)
-        c.setFont("Helvetica-Bold", 10)
+        c.setFillColor(navy); c.setFont("Helvetica-Bold", 10)
         c.drawCentredString(margin + (width - 2*margin)/2.0, y + target_h + 12, "Trips by Region")
+        c.drawImage(img, x, y, width=target_w, height=target_h, preserveAspectRatio=True, mask='auto')
 
-        c.drawImage(
-            img,
-            x, y,
-            width=target_w,
-            height=target_h,
-            preserveAspectRatio=True,
-            mask='auto'
-        )
-
-    # FIRST summary (Trip Summary / Snapshots) below the Executive block
     if summary_pages and len(summary_pages) >= 1:
         first_summary = summary_pages[0]
         c.setFillColor(navy); c.setFont("Helvetica-Bold", 12)
         c.drawString(margin, margin + summ_h + 6 - 16, first_summary.get("title", "Summary"))
-
         summary_frame = Frame(margin, margin, width - 2*margin, summ_h - 20, showBoundary=0)
         summary_para = Paragraph(first_summary.get("paragraph", ""), style=body_style)
         summary_frame.addFromList([summary_para], c)
 
     c.showPage()
 
-    # ---------- Any additional summary pages ----------
+    # Additional summaries
     if summary_pages and len(summary_pages) > 1:
         for sec in summary_pages[1:]:
             c.setFillColor(navy); c.setFont("Helvetica-Bold", 13)
@@ -1196,7 +1181,7 @@ def build_pdf_report(fig_sections, cover, summary_pages=None, mini_chart_png=Non
             frame.addFromList([Paragraph(sec.get("paragraph",""), style=body_style)], c)
             c.showPage()
 
-    # ---------- CHART PAGES: exactly 2 per page ----------
+    # Chart pages: 2 per page
     title_h = 12
     gap_y = 10
     usable_h = height - 2*margin
@@ -1245,35 +1230,21 @@ elif len(t) > 1:
     snapshots_text = make_multi_trip_snapshots(t, meals)
     summary_pages.append({"title": "Trip Snapshots", "paragraph": snapshots_text})
 
-# Build mini donut PNG for PDF page-1 gap (CLEAN look: percent-only inside, no legend)
+# Mini donut for page 1 (clean look)
 mini_chart_png = None
 try:
     rc = region_counts_df(t)
     if len(rc):
-        # Parchment-style soft palette
-        parchment_seq = ["#b9935a", "#d9c2a3", "#8c6e48", "#c7aa79", "#a67c52", "#e0ceb0", "#70543a", "#c9ab85"]
-        fig_region = px.pie(
-            rc,
-            names="region",
-            values="count",
-            hole=0.55,
-            template="simple_white",
-            color_discrete_sequence=parchment_seq
-        )
-        # Clean look: percentages inside only; radial text to reduce clipping
+        palette = ["#b9935a", "#d9c2a3", "#8c6e48", "#c7aa79", "#a67c52", "#e0ceb0", "#70543a", "#c9ab85"]
+        fig_region = px.pie(rc, names="region", values="count", hole=0.55,
+                            template="simple_white", color_discrete_sequence=palette)
         fig_region.update_traces(
             textinfo="percent",
             insidetextorientation="radial",
             hovertemplate="%{label}: %{value} trip(s) — %{percent}<extra></extra>",
             pull=0.01,
         )
-        # Safe margins & size to avoid cropping
-        fig_region.update_layout(
-            margin=dict(l=10, r=10, t=10, b=10),
-            height=260,
-            width=260,
-            showlegend=False,
-        )
+        fig_region.update_layout(margin=dict(l=10, r=10, t=10, b=10), height=260, width=260, showlegend=False)
         mini_chart_png = fig_png_bytes(fig_region, scale=2)
 except Exception:
     mini_chart_png = None
