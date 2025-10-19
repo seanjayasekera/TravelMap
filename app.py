@@ -2,6 +2,7 @@
 # Full app with compact PDF export (2 charts/page), poetic Executive Summary,
 # Exec+Snapshots on first PDF page, centered "Trips by Region" donut (clean, percent-only),
 # no watermark; legends hidden. Axis spacing fixes added to horizontal bars.
+# PDF: chart titles centered; subtle divider line between stacked visuals.
 
 import os
 import base64
@@ -67,7 +68,7 @@ section[data-testid="stSidebar"], [data-testid="stSidebar"] {
 """, unsafe_allow_html=True)
 
 # =========================
-#   Background image
+#   Background image (vintage parchment)
 # =========================
 def inject_background(img_bytes: bytes | None):
     if not img_bytes:
@@ -112,7 +113,7 @@ try:
     from reportlab.pdfgen import canvas as rl_canvas
     from reportlab.lib.pagesizes import A4
     from reportlab.lib.utils import ImageReader
-    from reportlab.lib.colors import HexColor
+    from reportlab.lib.colors import HexColor, Color
     from reportlab.platypus import Paragraph, Frame
     from reportlab.lib.styles import ParagraphStyle
     from reportlab.lib.enums import TA_LEFT
@@ -1181,36 +1182,48 @@ def build_pdf_report(fig_sections, cover, summary_pages=None, mini_chart_png=Non
             frame.addFromList([Paragraph(sec.get("paragraph",""), style=body_style)], c)
             c.showPage()
 
-    # Chart pages: 2 per page
+    # Chart pages: 2 per page, CENTERED TITLES + divider line
     title_h = 12
     gap_y = 10
     usable_h = height - 2*margin
     slot_h = (usable_h - gap_y) / 2.0
     max_w = width - 2*margin
+    center_x = margin + max_w / 2.0
+    divider_color = HexColor("#D9DEE8")
 
-    def draw_chart_block(title, fig, y_top):
+    def draw_chart_block_centered(title, fig, y_top):
+        # Centered title
         c.setFillColor(navy); c.setFont("Helvetica-Bold", 11)
-        c.drawString(margin, y_top - title_h, title)
+        c.drawCentredString(center_x, y_top - title_h, title)
+        # Chart image
         png = fig_png_bytes(fig, scale=2)
-        if not png: return
+        if not png: 
+            return
         img = ImageReader(BytesIO(png))
         iw, ih = img.getSize()
         available_h = slot_h - (title_h + 6)
         scale = min(max_w / iw, available_h / ih)
         draw_w, draw_h = iw * scale, ih * scale
-        c.drawImage(img, margin, y_top - title_h - 6 - draw_h, width=draw_w, height=draw_h,
+        # Center horizontally
+        x_draw = margin + (max_w - draw_w) / 2.0
+        c.drawImage(img, x_draw, y_top - title_h - 6 - draw_h, width=draw_w, height=draw_h,
                     preserveAspectRatio=True, mask='auto')
 
     i = 0
     while i < len(fig_sections):
         y_top_first = height - margin
         title1, fig1 = fig_sections[i]
-        draw_chart_block(title1, fig1, y_top_first)
+        draw_chart_block_centered(title1, fig1, y_top_first)
+
+        # Divider line between stacked visuals
+        c.setStrokeColor(divider_color); c.setLineWidth(0.5)
+        y_div = height - margin - slot_h - gap_y/2.0
+        c.line(margin, y_div, width - margin, y_div)
 
         if i + 1 < len(fig_sections):
             y_top_second = height - margin - slot_h - gap_y
             title2, fig2 = fig_sections[i + 1]
-            draw_chart_block(title2, fig2, y_top_second)
+            draw_chart_block_centered(title2, fig2, y_top_second)
             i += 2
         else:
             i += 1
